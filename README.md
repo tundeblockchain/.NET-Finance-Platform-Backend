@@ -52,6 +52,8 @@ dotnet run --project src/FinancePlatform.Api
 
 - Root: `GET /`
 - Health: `GET /health`
+- OpenAPI document: `GET /openapi/v1.json`
+- Scalar API docs: `/scalar`
 
 ## Run the Worker (service broker)
 
@@ -65,5 +67,7 @@ Trigger claim/execute loops are stubs until Phase 2.
 
 ## Current phase
 
-**Phase 0 — Foundations:** solution, conventions, Api/Worker hosts, smoke tests.
-Domain models and the trigger engine start in Phase 1–2.
+**Phase 1 — Core domain models & trigger contracts:** entities, trigger context,
+code ranges, status transitions, `ITriggerHandler` / `IComponent` registry.
+Scalar API documentation is available at `/scalar`.
+Trigger engine runtime starts in Phase 2.

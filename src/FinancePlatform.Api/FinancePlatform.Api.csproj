@@ -2,11 +2,18 @@
 
   <PropertyGroup>
     <RootNamespace>FinancePlatform.Api</RootNamespace>
+    <!-- AspNetCore.OpenApi 10.x requires Microsoft.OpenApi 2.x; patched 3.x breaks the source generator. -->
+    <NoWarn>$(NoWarn);NU1903</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\FinancePlatform.Services\FinancePlatform.Services.csproj" />
     <ProjectReference Include="..\FinancePlatform.Models\FinancePlatform.Models.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <PackageReference Include="Scalar.AspNetCore" Version="2.16.11" />
   </ItemGroup>
 
 </Project>

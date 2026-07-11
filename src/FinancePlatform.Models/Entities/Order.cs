@@ -1,0 +1,30 @@
+using FinancePlatform.Models.Enums;
+
+namespace FinancePlatform.Models.Entities;
+
+public sealed class Order
+{
+    public Guid Id { get; set; }
+
+    public Guid AccountId { get; set; }
+
+    public Guid? AllocationRequestId { get; set; }
+
+    public Guid TriggerId { get; set; }
+
+    public required string AssetSymbol { get; set; }
+
+    public OrderSide Side { get; set; }
+
+    public decimal Quantity { get; set; }
+
+    public decimal? LimitPrice { get; set; }
+
+    public OrderStatus Status { get; set; } = OrderStatus.Created;
+
+    public required string IdempotencyKey { get; set; }
+
+    public DateTimeOffset CreatedUtc { get; set; }
+
+    public DateTimeOffset? SubmittedUtc { get; set; }
+}

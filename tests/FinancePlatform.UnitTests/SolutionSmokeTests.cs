@@ -1,4 +1,5 @@
 using FluentAssertions;
+using FinancePlatform.Models.Entities;
 using ModelsMarker = FinancePlatform.Models.AssemblyMarker;
 using ServicesMarker = FinancePlatform.Services.AssemblyMarker;
 
@@ -18,5 +19,12 @@ public class SolutionSmokeTests
     {
         typeof(ServicesMarker).Assembly.GetName().Name
             .Should().Be("FinancePlatform.Services");
+    }
+
+    [Fact]
+    public void Domain_entities_are_defined()
+    {
+        typeof(SystemEventTrigger).Should().NotBeNull();
+        typeof(CashBalance).Should().NotBeNull();
     }
 }
