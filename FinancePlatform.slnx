@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FinancePlatform.Api/FinancePlatform.Api.csproj" />
+    <Project Path="src/FinancePlatform.Data/FinancePlatform.Data.csproj" />
+    <Project Path="src/FinancePlatform.Models/FinancePlatform.Models.csproj" />
+    <Project Path="src/FinancePlatform.Services/FinancePlatform.Services.csproj" />
+    <Project Path="src/FinancePlatform.Worker/FinancePlatform.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FinancePlatform.ComponentTests/FinancePlatform.ComponentTests.csproj" />
+    <Project Path="tests/FinancePlatform.IntegrationTests/FinancePlatform.IntegrationTests.csproj" />
+    <Project Path="tests/FinancePlatform.UnitTests/FinancePlatform.UnitTests.csproj" />
+  </Folder>
+</Solution>

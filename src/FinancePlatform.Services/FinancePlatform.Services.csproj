@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>FinancePlatform.Services</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FinancePlatform.Models\FinancePlatform.Models.csproj" />
+    <ProjectReference Include="..\FinancePlatform.Data\FinancePlatform.Data.csproj" />
+  </ItemGroup>
+
+</Project>

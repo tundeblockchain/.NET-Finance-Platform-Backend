@@ -1,0 +1,34 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{cs,csx}]
+indent_size = 4
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_prefer_simple_using_statement = true:suggestion
+csharp_using_directive_placement = outside_namespace:warning
+
+dotnet_naming_rule.interface_should_be_prefixed_with_i.symbols = interface_symbols
+dotnet_naming_rule.interface_should_be_prefixed_with_i.style = prefix_interface_with_i
+dotnet_naming_rule.interface_should_be_prefixed_with_i.severity = warning
+
+dotnet_naming_symbols.interface_symbols.applicable_kinds = interface
+dotnet_naming_symbols.interface_symbols.applicable_accessibilities = *
+
+dotnet_naming_style.prefix_interface_with_i.required_prefix = I
+dotnet_naming_style.prefix_interface_with_i.capitalization = pascal_case
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
