@@ -85,6 +85,34 @@ public sealed record SellRequest(
     Guid? RootWorkflowId = null,
     Guid? AllocationRequestId = null);
 
+public sealed record TradingOrderRequest(
+    string AssetSymbol,
+    decimal Quantity,
+    decimal CashAmount,
+    string IdempotencyKey,
+    string? Currency = null,
+    Guid? TradingAccountId = null,
+    Guid? RootWorkflowId = null);
+
+public sealed record TradingFundsResponse(
+    AccountBalanceResponse Cash,
+    IReadOnlyList<PositionResponse> Positions);
+
+public sealed record PositionResponse(
+    string AssetSymbol,
+    decimal Quantity);
+
+public sealed record TradeHistoryItemResponse(
+    Guid OrderId,
+    Guid TradingAccountId,
+    string AssetSymbol,
+    string Side,
+    decimal Quantity,
+    decimal? LimitPrice,
+    string Status,
+    DateTimeOffset CreatedUtc,
+    DateTimeOffset? SubmittedUtc);
+
 public sealed record WorkflowAcceptedResponse(
     Guid TriggerId,
     Guid RootWorkflowId,

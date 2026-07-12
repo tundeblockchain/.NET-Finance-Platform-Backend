@@ -30,6 +30,8 @@ public interface ICustomerDirectory
 
     bool TryCreditTradingAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey);
 
+    bool TryDebitTradingAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey);
+
     decimal GetCustomerSettled(Guid accountId);
 
     decimal GetTradingSettled(Guid accountId);

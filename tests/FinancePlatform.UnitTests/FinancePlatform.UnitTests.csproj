@@ -26,6 +26,7 @@
     <ProjectReference Include="..\..\src\FinancePlatform.Services\FinancePlatform.Services.csproj" />
     <ProjectReference Include="..\..\src\FinancePlatform.Data\FinancePlatform.Data.csproj" />
     <ProjectReference Include="..\..\src\FinancePlatform.Worker\FinancePlatform.Worker.csproj" />
+    <ProjectReference Include="..\..\src\FinancePlatform.Api\FinancePlatform.Api.csproj" />
   </ItemGroup>
 
 </Project>

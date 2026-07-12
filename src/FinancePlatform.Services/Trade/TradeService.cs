@@ -52,6 +52,9 @@ public sealed class TradeService(
             return ComponentOperationResult.Failure("Unable to credit trading account.");
         }
 
+        // Keep executable cash ledger in sync so Buy/Sell can reserve against the trading account id.
+        SyncCashDeposit(tradingAccount.Id, request.Currency, request.Amount, context);
+
         // Point A: park-only — Trading UI will later create an investment instruction and distribute.
         if (request.ParkOnly)
         {
@@ -179,6 +182,7 @@ public sealed class TradeService(
                 return ComponentOperationResult.Failure(ledger.Error ?? "Ledger debit failed.");
             }
 
+            SyncTradingAccountDebit(accountId, request.CashAmount, context);
             return ComponentOperationResult.Success(resultJson: """{"status":"bought"}""");
         }
         finally
@@ -272,6 +276,7 @@ public sealed class TradeService(
                 return ComponentOperationResult.Failure(ledger.Error ?? "Ledger credit failed.");
             }
 
+            SyncTradingAccountCredit(accountId, request.CashAmount, context);
             return ComponentOperationResult.Success(resultJson: """{"status":"sold"}""");
         }
         finally
@@ -349,6 +354,63 @@ public sealed class TradeService(
         }
 
         return result;
+    }
+
+    private void SyncCashDeposit(Guid tradingAccountId, string currency, decimal amount, TriggerContext context)
+    {
+        var lockResult = cashService.TryAcquireLock(
+            tradingAccountId,
+            currency,
+            context.TriggerId,
+            context.AllocationRequestId ?? context.RootWorkflowId,
+            LockLease);
+
+        if (!lockResult.IsHeld)
+        {
+            return;
+        }
+
+        try
+        {
+            cashService.TryDeposit(
+                $"{context.IdempotencyKey}:cash-sync-deposit",
+                tradingAccountId,
+                currency,
+                amount,
+                context.TriggerId);
+        }
+        finally
+        {
+            cashService.TryReleaseLock(tradingAccountId, currency, context.TriggerId);
+        }
+    }
+
+    private void SyncTradingAccountDebit(Guid accountId, decimal amount, TriggerContext context)
+    {
+        if (customerDirectory.FindTradingAccount(accountId) is null)
+        {
+            return;
+        }
+
+        customerDirectory.TryDebitTradingAccount(
+            accountId,
+            amount,
+            context.TriggerId,
+            $"{context.IdempotencyKey}:trading-debit");
+    }
+
+    private void SyncTradingAccountCredit(Guid accountId, decimal amount, TriggerContext context)
+    {
+        if (customerDirectory.FindTradingAccount(accountId) is null)
+        {
+            return;
+        }
+
+        customerDirectory.TryCreditTradingAccount(
+            accountId,
+            amount,
+            context.TriggerId,
+            $"{context.IdempotencyKey}:trading-credit-sell");
     }
 
     private static void Validate(TradeAssetRequest request)

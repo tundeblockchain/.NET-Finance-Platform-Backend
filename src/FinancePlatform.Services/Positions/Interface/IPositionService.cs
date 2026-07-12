@@ -4,6 +4,8 @@ public interface IPositionService
 {
     decimal GetQuantity(Guid accountId, string assetSymbol);
 
+    IReadOnlyList<PositionHolding> GetByAccount(Guid accountId);
+
     /// <summary>
     /// Increases position. Idempotent by key. Returns false when already applied.
     /// </summary>

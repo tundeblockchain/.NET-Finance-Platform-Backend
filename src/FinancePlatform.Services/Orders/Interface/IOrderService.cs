@@ -17,4 +17,6 @@ public interface IOrderService
         OrderSide side,
         decimal quantity,
         decimal? limitPrice);
+
+    IReadOnlyList<Order> GetByAccount(Guid accountId);
 }

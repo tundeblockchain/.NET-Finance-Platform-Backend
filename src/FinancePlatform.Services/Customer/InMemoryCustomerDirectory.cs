@@ -304,6 +304,34 @@ public sealed class InMemoryCustomerDirectory : ICustomerDirectory
         }
     }
 
+    public bool TryDebitTradingAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey)
+    {
+        if (amount <= 0)
+        {
+            return false;
+        }
+
+        if (!_mutationKeys.TryAdd(idempotencyKey, 0))
+        {
+            return true;
+        }
+
+        lock (_gate)
+        {
+            if (!_tradingAccounts.TryGetValue(accountId, out var account)
+                || account.Available < amount)
+            {
+                _mutationKeys.TryRemove(idempotencyKey, out _);
+                return false;
+            }
+
+            account.Settled -= amount;
+            account.DateModified = DateTimeOffset.UtcNow;
+            account.ChangedBy = ChangeActors.Broker;
+            return true;
+        }
+    }
+
     public decimal GetCustomerSettled(Guid accountId)
     {
         lock (_gate)

@@ -117,6 +117,22 @@ public sealed class SqlCustomerDirectory(
         }
     }
 
+    public bool TryDebitTradingAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey)
+    {
+        try
+        {
+            tradingAccountRepository
+                .DebitAsync(idempotencyKey, accountId, amount, triggerId, ChangeActors.Broker)
+                .GetAwaiter()
+                .GetResult();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public decimal GetCustomerSettled(Guid accountId) =>
         FindCustomerAccount(accountId)?.Settled ?? 0m;
 

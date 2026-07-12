@@ -11,6 +11,18 @@ public sealed class InMemoryPositionService : IPositionService
     public decimal GetQuantity(Guid accountId, string assetSymbol) =>
         _positions.TryGetValue((accountId, assetSymbol), out var qty) ? qty : 0m;
 
+    public IReadOnlyList<PositionHolding> GetByAccount(Guid accountId)
+    {
+        lock (_gate)
+        {
+            return _positions
+                .Where(kv => kv.Key.AccountId == accountId && kv.Value != 0m)
+                .OrderBy(kv => kv.Key.Symbol)
+                .Select(kv => new PositionHolding(kv.Key.AccountId, kv.Key.Symbol, kv.Value))
+                .ToArray();
+        }
+    }
+
     public bool TryApplyBuy(string idempotencyKey, Guid accountId, string assetSymbol, decimal quantity)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);

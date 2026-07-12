@@ -43,6 +43,8 @@ cd backend
 dotnet test FinancePlatform.slnx
 ```
 
+API controller unit tests live under `tests/FinancePlatform.UnitTests/Api/` (Customers, Trading, Workflows, Meta).
+
 ## Run the API
 
 ```bash
@@ -59,13 +61,20 @@ Ports are set in `src/FinancePlatform.Api/appsettings.json` (`Urls` / `Api:HttpP
 - Health: `http://localhost:5152/health`
 
 `dotnet run` can open Scalar automatically (`launchBrowser` + `launchUrl: scalar` in launch settings).
+
 - Customer APIs:
   - `POST /api/customers` — create customer + accounts + park agreement
   - `GET /api/customers/{id}` — customer and account balances
-  - `POST /api/customers/{id}/deposits` — Customer.DepositMoney (6001)
-  - `POST /api/customers/{id}/distribute-to-trading` — Customer.Distribute (6002) → Trading.Receive park (7001)
+  - `POST /api/customers/{id}/deposits` — Deposit funds (6001)
+  - `POST /api/customers/{id}/distribute-to-trading` — Transfer funds to trading (6002 → 7001 park)
   - `GET /api/customers/{id}/trading-account` — parked trading balance
-  - Legacy: `POST /api/workflows/deposits|buys|sells` (1001 / 2002 / 2003)
+- Trading APIs (trading account only):
+  - `GET /api/trading/customers/{id}/funds` — cash + positions
+  - `GET /api/trading/customers/{id}/positions`
+  - `GET /api/trading/customers/{id}/history` — trade history
+  - `POST /api/trading/customers/{id}/buys`
+  - `POST /api/trading/customers/{id}/sells`
+- Legacy workflows: `POST /api/workflows/deposits|buys|sells` (1001 / 2002 / 2003)
 
 With `Persistence:Provider=InMemory`, API and Worker do **not** share a store (separate processes).
 Use `SqlServer` for API → Worker end-to-end (customer directory uses SPs via `SqlCustomerDirectory`).

@@ -62,4 +62,29 @@ public sealed class InMemoryOrderService : IOrderService
 
     public Order? FindByIdempotencyKey(string idempotencyKey) =>
         _ordersByKey.TryGetValue(idempotencyKey, out var order) ? order : null;
+
+    public IReadOnlyList<Order> GetByAccount(Guid accountId) =>
+        _ordersByKey.Values
+            .Where(o => o.AccountId == accountId)
+            .OrderByDescending(o => o.CreatedUtc)
+            .Select(Clone)
+            .ToArray();
+
+    private static Order Clone(Order o) => new()
+    {
+        Id = o.Id,
+        AccountId = o.AccountId,
+        AllocationRequestId = o.AllocationRequestId,
+        TriggerId = o.TriggerId,
+        AssetSymbol = o.AssetSymbol,
+        Side = o.Side,
+        Quantity = o.Quantity,
+        LimitPrice = o.LimitPrice,
+        Status = o.Status,
+        IdempotencyKey = o.IdempotencyKey,
+        CreatedUtc = o.CreatedUtc,
+        SubmittedUtc = o.SubmittedUtc,
+        DateModified = o.DateModified,
+        ChangedBy = o.ChangedBy
+    };
 }

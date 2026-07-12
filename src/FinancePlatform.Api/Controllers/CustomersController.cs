@@ -69,10 +69,10 @@ public sealed class CustomersController(
     }
 
     [HttpPost("{customerId:int}/deposits")]
-    [EndpointName("EnqueueCustomerDeposit")]
-    [EndpointSummary("Enqueue customer deposit (6001)")]
-    [EndpointDescription("Credits the CustomerAccount. Does not move money to trading until distribute is called.")]
-    public async Task<ActionResult<WorkflowAcceptedResponse>> EnqueueDeposit(
+    [EndpointName("DepositFunds")]
+    [EndpointSummary("Deposit funds")]
+    [EndpointDescription("Credits the CustomerAccount (trigger 6001). Transfer to trading separately.")]
+    public async Task<ActionResult<WorkflowAcceptedResponse>> DepositFunds(
         int customerId,
         [FromBody] CustomerDepositHttpRequest body,
         CancellationToken ct)
@@ -103,10 +103,10 @@ public sealed class CustomersController(
     }
 
     [HttpPost("{customerId:int}/distribute-to-trading")]
-    [EndpointName("EnqueueCustomerDistribute")]
-    [EndpointSummary("Enqueue distribute to trading (6002 → 7001 park)")]
-    [EndpointDescription("Debits CustomerAccount and parks funds in TradingAccount. Trading UI invests later.")]
-    public async Task<ActionResult<WorkflowAcceptedResponse>> EnqueueDistribute(
+    [EndpointName("TransferFundsToTrading")]
+    [EndpointSummary("Transfer funds to trading")]
+    [EndpointDescription("Moves funds from CustomerAccount to TradingAccount (6002 → 7001 park).")]
+    public async Task<ActionResult<WorkflowAcceptedResponse>> TransferFundsToTrading(
         int customerId,
         [FromBody] CustomerDistributeHttpRequest body,
         CancellationToken ct)

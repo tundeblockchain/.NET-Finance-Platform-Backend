@@ -63,20 +63,39 @@ public sealed class TradingAccountRepository(IDbConnectionFactory connectionFact
                 cancellationToken: cancellationToken));
     }
 
-    public async Task<(TradingAccount Account, bool AlreadyApplied)> CreditAsync(
+    public Task<(TradingAccount Account, bool AlreadyApplied)> CreditAsync(
         string idempotencyKey,
         Guid accountId,
         decimal amount,
         Guid? triggerId,
         string changedBy,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        MutateAsync("CreditTradingAccount", idempotencyKey, accountId, amount, triggerId, changedBy, cancellationToken);
+
+    public Task<(TradingAccount Account, bool AlreadyApplied)> DebitAsync(
+        string idempotencyKey,
+        Guid accountId,
+        decimal amount,
+        Guid? triggerId,
+        string changedBy,
+        CancellationToken cancellationToken = default) =>
+        MutateAsync("DebitTradingAccount", idempotencyKey, accountId, amount, triggerId, changedBy, cancellationToken);
+
+    private async Task<(TradingAccount Account, bool AlreadyApplied)> MutateAsync(
+        string procedure,
+        string idempotencyKey,
+        Guid accountId,
+        decimal amount,
+        Guid? triggerId,
+        string changedBy,
+        CancellationToken cancellationToken)
     {
         await using var connection = connectionFactory.CreateConnection();
         await connection.OpenAsync(cancellationToken);
 
         var row = await connection.QuerySingleAsync<TradingAccountMutationRow>(
             new CommandDefinition(
-                "CreditTradingAccount",
+                procedure,
                 new
                 {
                     IdempotencyKey = idempotencyKey,

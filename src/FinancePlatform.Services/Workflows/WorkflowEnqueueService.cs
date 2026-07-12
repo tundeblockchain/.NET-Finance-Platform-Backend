@@ -60,7 +60,7 @@ public sealed class WorkflowEnqueueService(TriggerClaimService claimService) : I
             CorrelationId = rootId,
             AllocationRequestId = command.AllocationRequestId,
             ExternalId = command.AccountId,
-            ExternalType = ExternalEntityType.Account,
+            ExternalType = command.ExternalType,
             SourceComponent = "Api",
             TargetComponent = "Trading",
             IdempotencyKey = command.IdempotencyKey
@@ -89,7 +89,7 @@ public sealed class WorkflowEnqueueService(TriggerClaimService claimService) : I
             CorrelationId = rootId,
             AllocationRequestId = command.AllocationRequestId,
             ExternalId = command.AccountId,
-            ExternalType = ExternalEntityType.Account,
+            ExternalType = command.ExternalType,
             SourceComponent = "Api",
             TargetComponent = "Trading",
             IdempotencyKey = command.IdempotencyKey

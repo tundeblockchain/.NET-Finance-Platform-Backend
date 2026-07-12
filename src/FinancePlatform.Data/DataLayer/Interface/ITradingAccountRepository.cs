@@ -20,4 +20,12 @@ public interface ITradingAccountRepository
         Guid? triggerId,
         string changedBy,
         CancellationToken cancellationToken = default);
+
+    Task<(TradingAccount Account, bool AlreadyApplied)> DebitAsync(
+        string idempotencyKey,
+        Guid accountId,
+        decimal amount,
+        Guid? triggerId,
+        string changedBy,
+        CancellationToken cancellationToken = default);
 }

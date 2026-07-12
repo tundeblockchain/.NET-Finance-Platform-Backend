@@ -1,0 +1,170 @@
+using FinancePlatform.Api.Contracts;
+using FinancePlatform.Models.Enums;
+using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Orders;
+using FinancePlatform.Services.Positions;
+using FinancePlatform.Services.Workflows;
+using Microsoft.AspNetCore.Mvc;
+
+namespace FinancePlatform.Api.Controllers;
+
+[ApiController]
+[Route("api/trading/customers/{customerId:int}")]
+[Tags("Trading")]
+public sealed class TradingController(
+    ICustomerService customerService,
+    IWorkflowEnqueueService workflowsService,
+    IOrderService orderService,
+    IPositionService positionService) : ControllerBase
+{
+    [HttpGet("funds")]
+    [EndpointName("GetTradingFunds")]
+    [EndpointSummary("View trading funds")]
+    [EndpointDescription("Returns parked cash in the trading account plus open asset positions.")]
+    public ActionResult<TradingFundsResponse> GetFunds(int customerId)
+    {
+        var customer = customerService.GetCustomer(customerId);
+        if (customer is null)
+        {
+            return NotFound();
+        }
+
+        var accountId = customer.TradingAccount.Id;
+        var positions = positionService.GetByAccount(accountId)
+            .Select(p => new PositionResponse(p.AssetSymbol, p.Quantity))
+            .ToArray();
+
+        return Ok(new TradingFundsResponse(
+            CustomerMapper.ToTradingAccountBalance(customer.TradingAccount),
+            positions));
+    }
+
+    [HttpGet("positions")]
+    [EndpointName("GetTradingPositions")]
+    [EndpointSummary("View positions")]
+    [EndpointDescription("Lists asset holdings for the customer's trading account.")]
+    public ActionResult<IReadOnlyList<PositionResponse>> GetPositions(int customerId)
+    {
+        var customer = customerService.GetCustomer(customerId);
+        if (customer is null)
+        {
+            return NotFound();
+        }
+
+        var positions = positionService.GetByAccount(customer.TradingAccount.Id)
+            .Select(p => new PositionResponse(p.AssetSymbol, p.Quantity))
+            .ToArray();
+
+        return Ok(positions);
+    }
+
+    [HttpGet("history")]
+    [EndpointName("GetTradeHistory")]
+    [EndpointSummary("View trade history")]
+    [EndpointDescription("Returns buy/sell orders for the customer's trading account, newest first.")]
+    public ActionResult<IReadOnlyList<TradeHistoryItemResponse>> GetHistory(int customerId)
+    {
+        var customer = customerService.GetCustomer(customerId);
+        if (customer is null)
+        {
+            return NotFound();
+        }
+
+        var history = orderService.GetByAccount(customer.TradingAccount.Id)
+            .Select(o => new TradeHistoryItemResponse(
+                o.Id,
+                o.AccountId,
+                o.AssetSymbol,
+                o.Side.ToString(),
+                o.Quantity,
+                o.LimitPrice,
+                o.Status.ToString(),
+                o.CreatedUtc,
+                o.SubmittedUtc))
+            .ToArray();
+
+        return Ok(history);
+    }
+
+    [HttpPost("buys")]
+    [EndpointName("BuyAsset")]
+    [EndpointSummary("Buy asset")]
+    [EndpointDescription("Enqueues a buy against the trading account. Requires parked trading cash.")]
+    public async Task<ActionResult<WorkflowAcceptedResponse>> Buy(
+        int customerId,
+        [FromBody] TradingOrderRequest body,
+        CancellationToken ct)
+    {
+        var customer = customerService.GetCustomer(customerId);
+        if (customer is null)
+        {
+            return NotFound();
+        }
+
+        var tradingAccountId = body.TradingAccountId is { } id && id != Guid.Empty
+            ? id
+            : customer.TradingAccount.Id;
+
+        if (tradingAccountId != customer.TradingAccount.Id)
+        {
+            return BadRequest("Trading account does not belong to this customer.");
+        }
+
+        var trigger = await workflowsService.EnqueueBuyAsync(new BuyWorkflowCommand
+        {
+            AccountId = tradingAccountId,
+            AssetSymbol = body.AssetSymbol,
+            Quantity = body.Quantity,
+            CashAmount = body.CashAmount,
+            Currency = body.Currency ?? customer.TradingAccount.Currency,
+            IdempotencyKey = body.IdempotencyKey,
+            RootWorkflowId = body.RootWorkflowId,
+            ExternalType = ExternalEntityType.TradingAccount
+        }, ct);
+
+        return Accepted(
+            $"/api/workflows/triggers/{trigger.Id}",
+            new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
+    }
+
+    [HttpPost("sells")]
+    [EndpointName("SellAsset")]
+    [EndpointSummary("Sell asset")]
+    [EndpointDescription("Enqueues a sell against the trading account. Requires an existing position.")]
+    public async Task<ActionResult<WorkflowAcceptedResponse>> Sell(
+        int customerId,
+        [FromBody] TradingOrderRequest body,
+        CancellationToken ct)
+    {
+        var customer = customerService.GetCustomer(customerId);
+        if (customer is null)
+        {
+            return NotFound();
+        }
+
+        var tradingAccountId = body.TradingAccountId is { } id && id != Guid.Empty
+            ? id
+            : customer.TradingAccount.Id;
+
+        if (tradingAccountId != customer.TradingAccount.Id)
+        {
+            return BadRequest("Trading account does not belong to this customer.");
+        }
+
+        var trigger = await workflowsService.EnqueueSellAsync(new SellWorkflowCommand
+        {
+            AccountId = tradingAccountId,
+            AssetSymbol = body.AssetSymbol,
+            Quantity = body.Quantity,
+            CashAmount = body.CashAmount,
+            Currency = body.Currency ?? customer.TradingAccount.Currency,
+            IdempotencyKey = body.IdempotencyKey,
+            RootWorkflowId = body.RootWorkflowId,
+            ExternalType = ExternalEntityType.TradingAccount
+        }, ct);
+
+        return Accepted(
+            $"/api/workflows/triggers/{trigger.Id}",
+            new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
+    }
+}

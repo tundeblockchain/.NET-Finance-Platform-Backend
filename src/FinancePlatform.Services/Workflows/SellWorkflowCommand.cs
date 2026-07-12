@@ -1,3 +1,5 @@
+using FinancePlatform.Models.Enums;
+
 namespace FinancePlatform.Services.Workflows;
 
 public sealed class SellWorkflowCommand
@@ -17,4 +19,6 @@ public sealed class SellWorkflowCommand
     public Guid? RootWorkflowId { get; init; }
 
     public Guid? AllocationRequestId { get; init; }
+
+    public ExternalEntityType ExternalType { get; init; } = ExternalEntityType.Account;
 }
