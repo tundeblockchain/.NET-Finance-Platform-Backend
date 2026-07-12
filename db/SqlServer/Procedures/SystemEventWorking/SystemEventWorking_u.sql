@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.SystemEventWorking_u
+  Purpose   : Upserts a SystemEventWorking lease row in place (no archive). Sets DateModified and ChangedBy.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

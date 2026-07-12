@@ -74,7 +74,7 @@ Persistence defaults to **InMemory**. To use SQL Server:
 
 ## Current phase
 
-**Phase 3 — SQL persistence:** schema, archive tables (`*_a`), `get_<Model>_f` /
-`<Model>_u` SPs, Dapper repositories, `SqlTriggerStore`. Trigger tables have no
-archives; broker sets `ChangedBy = broker`.
+**Phase 4 — Cash locks, reservations & ledger:** `AcquireCashLock` / `ReserveCash` /
+`DepositCash`, in-memory `CashService` + `LedgerService`, deposit handler
+(lock → credit → ledger → unlock; Retry on contention).
 

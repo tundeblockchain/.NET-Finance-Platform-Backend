@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.Position_u
+  Purpose   : Upserts a Position. On update, archives the current row into Position_a before applying changes. Sets DateModified and ChangedBy.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.FailTrigger
+  Purpose   : Marks a trigger Failed with LastError, stamps CompletedUtc, and removes its SystemEventWorking lease. Sets ChangedBy to broker.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

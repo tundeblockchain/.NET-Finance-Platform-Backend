@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.CashReservation_u
+  Purpose   : Upserts a CashReservation. On update, archives the current row into CashReservation_a before applying changes. Sets DateModified and ChangedBy.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

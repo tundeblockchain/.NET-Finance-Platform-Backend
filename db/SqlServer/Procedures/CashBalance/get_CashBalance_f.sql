@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.get_CashBalance_f
+  Purpose   : Fetches a single CashBalance row by Id.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

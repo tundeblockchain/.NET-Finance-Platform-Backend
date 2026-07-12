@@ -160,6 +160,7 @@ public sealed class TriggerExecutionService(
 
     private static TriggerContext ToContext(SystemEventTrigger trigger) => new()
     {
+        TriggerId = trigger.Id,
         RootWorkflowId = trigger.RootWorkflowId,
         CorrelationId = trigger.CorrelationId,
         ParentTriggerId = trigger.ParentTriggerId,

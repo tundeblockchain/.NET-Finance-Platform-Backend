@@ -6,6 +6,7 @@ Apply against database `FinancePlatform` in this order:
 2. `Tables/*.sql` — one file per main table
 3. `Archives/*.sql` — one file per `*_a` archive table
 4. `Procedures/**/*.sql` — one file per stored procedure
+   (include `Procedures/Cash/` for AcquireCashLock, DepositCash, ReserveCash, …)
 
 ## Layout
 

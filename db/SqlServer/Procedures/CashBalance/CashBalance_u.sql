@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.CashBalance_u
+  Purpose   : Upserts a CashBalance. On update, archives the current row into CashBalance_a before applying changes. Sets DateModified and ChangedBy.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

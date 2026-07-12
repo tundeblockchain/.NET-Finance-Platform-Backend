@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.ClaimTrigger
+  Purpose   : Claims the next pending trigger for a queue using UPDLOCK/READPAST. Moves it to Running, inserts SystemEventWorking, and returns trigger + working result sets. Empty sets when no work is available.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

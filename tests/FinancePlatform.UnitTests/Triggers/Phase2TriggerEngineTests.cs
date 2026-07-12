@@ -3,6 +3,7 @@ using FinancePlatform.Data.Triggers;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Trading;
 using FinancePlatform.Services.Triggers;
 using FinancePlatform.Worker.Handlers;
@@ -127,7 +128,7 @@ public class TriggerExecutionServiceTests
             && t.QueueName == "Trading"
             && t.ParentTriggerId == root.Id);
 
-        harness.Cash.GetBalance(accountId).Should().Be(250m);
+        harness.Cash.GetSettled(accountId, "GBP").Should().Be(250m);
     }
 
     [Fact]
@@ -192,12 +193,14 @@ public class TriggerExecutionServiceTests
     {
         var cash = new InMemoryCashService();
         var accountId = Guid.NewGuid();
+        var triggerId = Guid.NewGuid();
 
-        cash.TryDeposit("dep-key", accountId, 100m, "GBP").Should().BeTrue();
-        cash.TryDeposit("dep-key", accountId, 100m, "GBP").Should().BeFalse();
+        cash.TryAcquireLock(accountId, "GBP", triggerId, null, TimeSpan.FromSeconds(30)).IsHeld.Should().BeTrue();
+        cash.TryDeposit("dep-key", accountId, "GBP", 100m, triggerId).AlreadyApplied.Should().BeFalse();
+        cash.TryDeposit("dep-key", accountId, "GBP", 100m, triggerId).AlreadyApplied.Should().BeTrue();
+        cash.TryReleaseLock(accountId, "GBP", triggerId).Should().BeTrue();
 
-        cash.DepositCount.Should().Be(1);
-        cash.GetBalance(accountId).Should().Be(100m);
+        cash.GetSettled(accountId, "GBP").Should().Be(100m);
     }
 
     [Fact]
@@ -244,7 +247,7 @@ public class TriggerExecutionServiceTests
 
         harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.DepositCash && t.Status == TriggerStatus.Completed);
         harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.BuyAsset && t.Status == TriggerStatus.Completed);
-        harness.Cash.GetBalance(accountId).Should().Be(500m);
+        harness.Cash.GetSettled(accountId, "GBP").Should().Be(500m);
         harness.Trading.GetPosition(accountId, "VWRL").Should().Be(3m);
     }
 
@@ -253,11 +256,12 @@ public class TriggerExecutionServiceTests
         var store = new InMemoryTriggerStore();
         var registry = new TriggerHandlerRegistry();
         var cash = new InMemoryCashService();
+        var ledger = new InMemoryLedgerService();
         var trading = new InMemoryTradingService();
 
         if (registerDeposit)
         {
-            registry.RegisterHandler(new DepositCashHandler(cash));
+            registry.RegisterHandler(new DepositCashHandler(cash, ledger));
             registry.RegisterHandler(new BuyAssetHandler(trading));
             registry.RegisterHandler(new ReverseBuyAssetHandler());
         }

@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.CompleteTrigger
+  Purpose   : Marks a trigger Completed, stores ResultJson, and removes its SystemEventWorking lease. Sets ChangedBy to broker.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

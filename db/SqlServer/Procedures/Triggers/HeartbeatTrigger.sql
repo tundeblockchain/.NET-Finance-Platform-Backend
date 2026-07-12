@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.HeartbeatTrigger
+  Purpose   : Refreshes HeartbeatUtc and LeaseExpiresUtc for a working trigger owned by the given worker. Throws if the worker does not own the lease.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

@@ -8,6 +8,8 @@ namespace FinancePlatform.Models.Dtos;
 /// </summary>
 public sealed class TriggerContext
 {
+    public required Guid TriggerId { get; init; }
+
     public required Guid RootWorkflowId { get; init; }
 
     public required Guid CorrelationId { get; init; }
@@ -38,6 +40,11 @@ public sealed class TriggerContext
     public IReadOnlyList<string> Validate()
     {
         var errors = new List<string>();
+
+        if (TriggerId == Guid.Empty)
+        {
+            errors.Add($"{nameof(TriggerId)} is required.");
+        }
 
         if (RootWorkflowId == Guid.Empty)
         {

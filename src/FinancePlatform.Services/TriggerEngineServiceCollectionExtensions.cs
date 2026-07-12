@@ -1,6 +1,7 @@
 using FinancePlatform.Data;
 using FinancePlatform.Data.Triggers;
 using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Trading;
 using FinancePlatform.Services.Triggers;
 using Microsoft.Extensions.Configuration;
@@ -35,6 +36,7 @@ public static class TriggerEngineServiceCollectionExtensions
         }
 
         services.AddSingleton<ICashService, InMemoryCashService>();
+        services.AddSingleton<ILedgerService, InMemoryLedgerService>();
         services.AddSingleton<ITradingService, InMemoryTradingService>();
         services.AddSingleton(TimeProvider.System);
 
@@ -64,6 +66,7 @@ public static class TriggerEngineServiceCollectionExtensions
     {
         services.AddInMemoryPersistence();
         services.AddSingleton<ICashService, InMemoryCashService>();
+        services.AddSingleton<ILedgerService, InMemoryLedgerService>();
         services.AddSingleton<ITradingService, InMemoryTradingService>();
         services.AddSingleton(TimeProvider.System);
 

@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.AllocationRequest_u
+  Purpose   : Upserts an AllocationRequest. On update, archives the current row into AllocationRequest_a before applying changes. Sets DateModified and ChangedBy.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

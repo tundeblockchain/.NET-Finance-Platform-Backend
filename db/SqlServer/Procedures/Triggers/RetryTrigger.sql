@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.RetryTrigger
+  Purpose   : Marks a trigger for retry: sets Pending with NextAttemptUtc and LastError, and removes its SystemEventWorking lease. Sets ChangedBy to broker.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

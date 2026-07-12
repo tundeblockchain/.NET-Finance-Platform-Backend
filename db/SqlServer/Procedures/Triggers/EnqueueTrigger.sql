@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.EnqueueTrigger
+  Purpose   : Enqueues a pending trigger idempotently by IdempotencyKey. Returns the existing trigger when the key already exists. Sets ChangedBy to broker.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

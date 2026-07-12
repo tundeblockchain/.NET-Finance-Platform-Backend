@@ -1,3 +1,8 @@
+/*
+  Procedure : dbo.get_AllocationRequest_f
+  Purpose   : Fetches a single AllocationRequest row by Id.
+  Dated     : 2026-07-12
+*/
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO

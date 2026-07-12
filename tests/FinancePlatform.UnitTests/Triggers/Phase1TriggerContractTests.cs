@@ -22,6 +22,7 @@ public class TriggerContextValidationTests
     {
         var context = new TriggerContext
         {
+            TriggerId = Guid.NewGuid(),
             RootWorkflowId = Guid.Empty,
             CorrelationId = Guid.Empty,
             SourceComponent = " ",
@@ -42,6 +43,7 @@ public class TriggerContextValidationTests
     {
         var context = new TriggerContext
         {
+            TriggerId = Guid.NewGuid(),
             RootWorkflowId = Guid.NewGuid(),
             CorrelationId = Guid.NewGuid(),
             SourceComponent = "Customer",
@@ -60,6 +62,7 @@ public class TriggerContextValidationTests
     {
         var context = new TriggerContext
         {
+            TriggerId = Guid.NewGuid(),
             RootWorkflowId = Guid.NewGuid(),
             CorrelationId = Guid.NewGuid(),
             SourceComponent = "Customer",
@@ -85,6 +88,7 @@ public class TriggerContextValidationTests
     {
         var context = new TriggerContext
         {
+            TriggerId = Guid.NewGuid(),
             RootWorkflowId = Guid.Empty,
             CorrelationId = Guid.NewGuid(),
             SourceComponent = "Customer",
@@ -99,6 +103,7 @@ public class TriggerContextValidationTests
 
     private static TriggerContext CreateValidContext() => new()
     {
+        TriggerId = Guid.NewGuid(),
         RootWorkflowId = Guid.NewGuid(),
         CorrelationId = Guid.NewGuid(),
         SourceComponent = "Customer",
