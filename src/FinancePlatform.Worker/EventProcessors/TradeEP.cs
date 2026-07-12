@@ -41,6 +41,8 @@ public sealed class TradeEP(ITradeService tradeService) : ITriggerEventProcessor
                 tradeService.ReceiveMoney(context, RequireTradingReceive(payloadJson)), raiser),
             (TriggerCodes.TradingDistributeMoney, true) => EpResult.From(
                 tradeService.DistributeMoney(context, RequireAllocation(payloadJson), payloadJson), raiser),
+            (TriggerCodes.TradingTransferToCustomer, true) => EpResult.From(
+                tradeService.TransferToCustomer(context, RequireTransferToCustomer(payloadJson)), raiser),
             (TriggerCodes.BuyAsset, true) => EpResult.From(
                 tradeService.Buy(context, RequireTrade(payloadJson)), raiser),
             (TriggerCodes.BuyAsset, false) => EpResult.From(
@@ -56,6 +58,10 @@ public sealed class TradeEP(ITradeService tradeService) : ITriggerEventProcessor
     private static TradingReceiveMoneyRequest RequireTradingReceive(string payloadJson) =>
         JsonSerializer.Deserialize<TradingReceiveMoneyRequest>(payloadJson)
         ?? throw new InvalidOperationException("Trading receive payload is required.");
+
+    private static TradingTransferToCustomerRequest RequireTransferToCustomer(string payloadJson) =>
+        JsonSerializer.Deserialize<TradingTransferToCustomerRequest>(payloadJson)
+        ?? throw new InvalidOperationException("Trading transfer payload is required.");
 
     private static AllocationMoneyRequest RequireAllocation(string payloadJson) =>
         JsonSerializer.Deserialize<AllocationMoneyRequest>(payloadJson)

@@ -159,6 +159,40 @@ public class TradingControllerTests
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task TransferToCustomer_enqueues_7003()
+    {
+        var provisioned = ApiTestFixtures.CreateProvisionedCustomer(tradingSettled: 400m);
+        var customers = Substitute.For<ICustomerService>();
+        customers.GetCustomer(1).Returns(provisioned);
+
+        var trigger = ApiTestFixtures.CreateTrigger(TriggerCodes.TradingTransferToCustomer, QueueNames.Trading, "xfer-1");
+        var workflows = Substitute.For<IWorkflowEnqueueService>();
+        workflows.EnqueueTradingTransferToCustomerAsync(
+                Arg.Any<TradingTransferToCustomerWorkflowCommand>(),
+                Arg.Any<CancellationToken>())
+            .Returns(trigger);
+
+        var controller = CreateController(customers, workflows);
+
+        var result = await controller.TransferToCustomer(
+            1,
+            new TradingTransferToCustomerHttpRequest(150m, "xfer-1"),
+            CancellationToken.None);
+
+        var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
+        var body = accepted.Value.Should().BeOfType<WorkflowAcceptedResponse>().Subject;
+        body.TriggerCode.Should().Be(TriggerCodes.TradingTransferToCustomer);
+
+        await workflows.Received(1).EnqueueTradingTransferToCustomerAsync(
+            Arg.Is<TradingTransferToCustomerWorkflowCommand>(c =>
+                c.CustomerId == 1
+                && c.TradingAccountId == provisioned.TradingAccount.Id
+                && c.CustomerAccountId == provisioned.CustomerAccount.Id
+                && c.Amount == 150m),
+            Arg.Any<CancellationToken>());
+    }
+
     private static TradingController CreateController(
         ICustomerService customers,
         IWorkflowEnqueueService? workflows = null,

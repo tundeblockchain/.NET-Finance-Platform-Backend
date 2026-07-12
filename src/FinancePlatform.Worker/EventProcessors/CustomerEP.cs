@@ -36,6 +36,12 @@ public sealed class CustomerEP(ICustomerService customerService) : ITriggerEvent
                     JsonSerializer.Deserialize<CustomerDepositRequest>(payloadJson)
                     ?? throw new InvalidOperationException("Customer deposit payload is required.")),
                 raiser),
+            TriggerCodes.CustomerReceiveMoney when TriggerCodes.IsAction(triggerCode) => EpResult.From(
+                customerService.ReceiveMoney(
+                    context,
+                    JsonSerializer.Deserialize<CustomerReceiveMoneyRequest>(payloadJson)
+                    ?? throw new InvalidOperationException("Customer receive payload is required.")),
+                raiser),
             TriggerCodes.CustomerDistributeMoney when TriggerCodes.IsAction(triggerCode) => EpResult.From(
                 customerService.DistributeMoney(
                     context,

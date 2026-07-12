@@ -94,6 +94,14 @@ public sealed record TradingOrderRequest(
     Guid? TradingAccountId = null,
     Guid? RootWorkflowId = null);
 
+public sealed record TradingTransferToCustomerHttpRequest(
+    decimal Amount,
+    string IdempotencyKey,
+    Guid? TradingAccountId = null,
+    Guid? CustomerAccountId = null,
+    string? Currency = null,
+    Guid? RootWorkflowId = null);
+
 public sealed record TradingFundsResponse(
     AccountBalanceResponse Cash,
     IReadOnlyList<PositionResponse> Positions);

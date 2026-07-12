@@ -74,6 +74,7 @@ Ports are set in `src/FinancePlatform.Api/appsettings.json` (`Urls` / `Api:HttpP
   - `GET /api/trading/customers/{id}/history` — trade history
   - `POST /api/trading/customers/{id}/buys`
   - `POST /api/trading/customers/{id}/sells`
+  - `POST /api/trading/customers/{id}/transfer-to-customer` — Transfer funds to customer (7003 → 6003)
 - Legacy workflows: `POST /api/workflows/deposits|buys|sells` (1001 / 2002 / 2003)
 
 With `Persistence:Provider=InMemory`, API and Worker do **not** share a store (separate processes).

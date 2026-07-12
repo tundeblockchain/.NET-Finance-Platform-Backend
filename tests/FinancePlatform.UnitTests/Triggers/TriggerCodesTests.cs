@@ -7,6 +7,8 @@ namespace FinancePlatform.UnitTests.Triggers;
 public class TriggerCodesTests
 {
     [Theory]
+    [InlineData(TriggerCodes.CustomerReceiveMoney, ComponentType.Customer, "Customer")]
+    [InlineData(TriggerCodes.TradingTransferToCustomer, ComponentType.Trading, "Trading")]
     [InlineData(TriggerCodes.CustomerDistributeMoney, ComponentType.Customer, "Customer")]
     [InlineData(TriggerCodes.TradingReceiveMoney, ComponentType.Trading, "Trading")]
     [InlineData(TriggerCodes.InvestmentInvestMoney, ComponentType.Investment, "Investment")]

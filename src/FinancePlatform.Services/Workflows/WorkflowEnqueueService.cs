@@ -3,6 +3,7 @@ using FinancePlatform.Data.Triggers;
 using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Entities;
 using FinancePlatform.Models.Enums;
+using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Triggers;
 
@@ -152,6 +153,35 @@ public sealed class WorkflowEnqueueService(TriggerClaimService claimService) : I
             ExternalType = ExternalEntityType.CustomerAccount,
             SourceComponent = "Api",
             TargetComponent = "Customer",
+            IdempotencyKey = command.IdempotencyKey
+        }, cancellationToken);
+    }
+
+    public Task<SystemEventTrigger> EnqueueTradingTransferToCustomerAsync(
+        TradingTransferToCustomerWorkflowCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var rootId = command.RootWorkflowId ?? Guid.NewGuid();
+        var payload = JsonSerializer.Serialize(new TradingTransferToCustomerRequest
+        {
+            CustomerId = command.CustomerId,
+            TradingAccountId = command.TradingAccountId,
+            CustomerAccountId = command.CustomerAccountId,
+            Amount = command.Amount,
+            Currency = command.Currency
+        });
+
+        return claimService.EnqueueAsync(new EnqueueTriggerCommand
+        {
+            TriggerCode = TriggerCodes.TradingTransferToCustomer,
+            QueueName = QueueNames.Trading,
+            PayloadJson = payload,
+            RootWorkflowId = rootId,
+            CorrelationId = rootId,
+            ExternalId = command.TradingAccountId,
+            ExternalType = ExternalEntityType.TradingAccount,
+            SourceComponent = "Api",
+            TargetComponent = "Trading",
             IdempotencyKey = command.IdempotencyKey
         }, cancellationToken);
     }

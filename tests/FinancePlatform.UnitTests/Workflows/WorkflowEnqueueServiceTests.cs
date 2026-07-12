@@ -60,6 +60,16 @@ public class WorkflowEnqueueServiceTests
             IdempotencyKey = "api-cust-dist-1"
         });
 
+        var tradingTransfer = await service.EnqueueTradingTransferToCustomerAsync(
+            new TradingTransferToCustomerWorkflowCommand
+            {
+                CustomerId = 1,
+                TradingAccountId = Guid.NewGuid(),
+                CustomerAccountId = customerAccountId,
+                Amount = 75m,
+                IdempotencyKey = "api-xfer-back-1"
+            });
+
         deposit.TriggerCode.Should().Be(TriggerCodes.DepositCash);
         deposit.QueueName.Should().Be(QueueNames.Cash);
 
@@ -75,6 +85,9 @@ public class WorkflowEnqueueServiceTests
         customerDistribute.TriggerCode.Should().Be(TriggerCodes.CustomerDistributeMoney);
         customerDistribute.QueueName.Should().Be(QueueNames.Customer);
 
-        store.GetAll().Should().HaveCount(5);
+        tradingTransfer.TriggerCode.Should().Be(TriggerCodes.TradingTransferToCustomer);
+        tradingTransfer.QueueName.Should().Be(QueueNames.Trading);
+
+        store.GetAll().Should().HaveCount(6);
     }
 }

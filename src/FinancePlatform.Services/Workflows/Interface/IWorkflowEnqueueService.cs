@@ -19,6 +19,10 @@ public interface IWorkflowEnqueueService
         CustomerDistributeWorkflowCommand command,
         CancellationToken cancellationToken = default);
 
+    Task<SystemEventTrigger> EnqueueTradingTransferToCustomerAsync(
+        TradingTransferToCustomerWorkflowCommand command,
+        CancellationToken cancellationToken = default);
+
     [Obsolete("Use EnqueueCustomerDistributeAsync for park-only Customer → Trading.")]
     Task<SystemEventTrigger> EnqueueAllocationAsync(AllocationWorkflowCommand command, CancellationToken cancellationToken = default);
 }

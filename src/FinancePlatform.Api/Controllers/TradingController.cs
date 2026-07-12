@@ -167,4 +167,50 @@ public sealed class TradingController(
             $"/api/workflows/triggers/{trigger.Id}",
             new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
     }
+
+    [HttpPost("transfer-to-customer")]
+    [EndpointName("TransferFundsToCustomer")]
+    [EndpointSummary("Transfer funds to customer")]
+    [EndpointDescription("Moves parked funds from TradingAccount back to CustomerAccount (7003 → 6003).")]
+    public async Task<ActionResult<WorkflowAcceptedResponse>> TransferToCustomer(
+        int customerId,
+        [FromBody] TradingTransferToCustomerHttpRequest body,
+        CancellationToken ct)
+    {
+        var customer = customerService.GetCustomer(customerId);
+        if (customer is null)
+        {
+            return NotFound();
+        }
+
+        var tradingAccountId = body.TradingAccountId is { } ta && ta != Guid.Empty
+            ? ta
+            : customer.TradingAccount.Id;
+        var customerAccountId = body.CustomerAccountId is { } ca && ca != Guid.Empty
+            ? ca
+            : customer.CustomerAccount.Id;
+
+        if (tradingAccountId != customer.TradingAccount.Id
+            || customerAccountId != customer.CustomerAccount.Id)
+        {
+            return BadRequest("Account ids do not belong to this customer.");
+        }
+
+        var trigger = await workflowsService.EnqueueTradingTransferToCustomerAsync(
+            new TradingTransferToCustomerWorkflowCommand
+            {
+                CustomerId = customerId,
+                TradingAccountId = tradingAccountId,
+                CustomerAccountId = customerAccountId,
+                Amount = body.Amount,
+                Currency = body.Currency ?? customer.TradingAccount.Currency,
+                IdempotencyKey = body.IdempotencyKey,
+                RootWorkflowId = body.RootWorkflowId
+            },
+            ct);
+
+        return Accepted(
+            $"/api/workflows/triggers/{trigger.Id}",
+            new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
+    }
 }

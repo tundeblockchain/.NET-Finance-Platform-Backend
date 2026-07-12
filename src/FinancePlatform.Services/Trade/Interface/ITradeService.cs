@@ -15,6 +15,11 @@ public interface ITradeService
 
     ComponentOperationResult DistributeMoney(TriggerContext context, AllocationMoneyRequest request, string rawPayloadJson);
 
+    /// <summary>
+    /// Moves parked funds from the trading account back to the customer account (7003 → 6003).
+    /// </summary>
+    ComponentOperationResult TransferToCustomer(TriggerContext context, TradingTransferToCustomerRequest request);
+
     ComponentOperationResult Buy(TriggerContext context, TradeAssetRequest request);
 
     ComponentOperationResult Sell(TriggerContext context, TradeAssetRequest request);

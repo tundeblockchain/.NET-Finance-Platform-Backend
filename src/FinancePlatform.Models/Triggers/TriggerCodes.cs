@@ -20,10 +20,12 @@ public static class TriggerCodes
     // Customer component
     public const int CustomerDepositMoney = 6001;
     public const int CustomerDistributeMoney = 6002;
+    public const int CustomerReceiveMoney = 6003;
 
     // Trading component
     public const int TradingReceiveMoney = 7001;
     public const int TradingDistributeMoney = 7002;
+    public const int TradingTransferToCustomer = 7003;
     public const int InvestmentReceiveMoney = 8001;
     public const int InvestmentInvestMoney = 8002;
     public const int AssetBuyAsset = 9001;

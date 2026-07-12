@@ -76,6 +76,39 @@ public sealed class CustomerService(ICustomerDirectory directory) : ICustomerSer
             resultJson: $$"""{"status":"customer-deposited","customerAccountId":"{{account.Id}}","amount":{{request.Amount}}}""");
     }
 
+    public ComponentOperationResult ReceiveMoney(TriggerContext context, CustomerReceiveMoneyRequest request)
+    {
+        if (request.Amount <= 0)
+        {
+            return ComponentOperationResult.Failure("Receive amount must be positive.");
+        }
+
+        var account = directory.FindCustomerAccount(request.CustomerAccountId);
+        if (account is null || account.CustomerId != request.CustomerId)
+        {
+            return ComponentOperationResult.Failure("Customer account was not found.");
+        }
+
+        if (!string.Equals(account.Currency, request.Currency, StringComparison.OrdinalIgnoreCase))
+        {
+            return ComponentOperationResult.Failure("Currency mismatch for customer account.");
+        }
+
+        var credited = directory.TryCreditCustomerAccount(
+            account.Id,
+            request.Amount,
+            context.TriggerId,
+            $"{context.IdempotencyKey}:customer-receive");
+
+        if (!credited)
+        {
+            return ComponentOperationResult.Failure("Unable to credit customer account.");
+        }
+
+        return ComponentOperationResult.Success(
+            resultJson: $$"""{"status":"customer-received","customerAccountId":"{{account.Id}}","amount":{{request.Amount}}}""");
+    }
+
     public ComponentOperationResult DistributeMoney(
         TriggerContext context,
         DistributeMoneyRequest request,

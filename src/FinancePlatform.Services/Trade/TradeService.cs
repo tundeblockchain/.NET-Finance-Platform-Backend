@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FinancePlatform.Models.Allocation;
 using FinancePlatform.Models.Components;
+using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
@@ -94,6 +95,67 @@ public sealed class TradeService(
                     TargetComponent = "Investment",
                     PayloadJson = rawPayloadJson,
                     IdempotencyKey = $"{context.IdempotencyKey}:8001"
+                }
+            ]);
+    }
+
+    public ComponentOperationResult TransferToCustomer(TriggerContext context, TradingTransferToCustomerRequest request)
+    {
+        if (request.Amount <= 0)
+        {
+            return ComponentOperationResult.Failure("Transfer amount must be positive.");
+        }
+
+        var tradingAccount = customerDirectory.FindTradingAccount(request.TradingAccountId);
+        if (tradingAccount is null || tradingAccount.CustomerId != request.CustomerId)
+        {
+            return ComponentOperationResult.Failure("Trading account was not found.");
+        }
+
+        if (!string.Equals(tradingAccount.Currency, request.Currency, StringComparison.OrdinalIgnoreCase))
+        {
+            return ComponentOperationResult.Failure("Currency mismatch for trading account.");
+        }
+
+        var customerAccount = customerDirectory.FindCustomerAccount(request.CustomerAccountId);
+        if (customerAccount is null || customerAccount.CustomerId != request.CustomerId)
+        {
+            return ComponentOperationResult.Failure("Customer account was not found.");
+        }
+
+        var debited = customerDirectory.TryDebitTradingAccount(
+            tradingAccount.Id,
+            request.Amount,
+            context.TriggerId,
+            $"{context.IdempotencyKey}:trading-transfer-debit");
+
+        if (!debited)
+        {
+            return ComponentOperationResult.Failure("Insufficient funds in trading account.");
+        }
+
+        SyncCashWithdraw(tradingAccount.Id, request.Currency, request.Amount, context);
+
+        var receivePayload = JsonSerializer.Serialize(new CustomerReceiveMoneyRequest
+        {
+            CustomerId = request.CustomerId,
+            CustomerAccountId = request.CustomerAccountId,
+            SourceTradingAccountId = tradingAccount.Id,
+            Amount = request.Amount,
+            Currency = request.Currency
+        });
+
+        return ComponentOperationResult.Success(
+            resultJson: """{"status":"trading-transferred-to-customer"}""",
+            nextTriggers:
+            [
+                new NextTriggerSpec
+                {
+                    TriggerCode = TriggerCodes.CustomerReceiveMoney,
+                    QueueName = QueueNames.Customer,
+                    TargetComponent = "Customer",
+                    PayloadJson = receivePayload,
+                    IdempotencyKey = $"{context.IdempotencyKey}:6003"
                 }
             ]);
     }
@@ -378,6 +440,45 @@ public sealed class TradeService(
                 currency,
                 amount,
                 context.TriggerId);
+        }
+        finally
+        {
+            cashService.TryReleaseLock(tradingAccountId, currency, context.TriggerId);
+        }
+    }
+
+    private void SyncCashWithdraw(Guid tradingAccountId, string currency, decimal amount, TriggerContext context)
+    {
+        var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
+        var lockResult = cashService.TryAcquireLock(
+            tradingAccountId,
+            currency,
+            context.TriggerId,
+            allocationId,
+            LockLease);
+
+        if (!lockResult.IsHeld)
+        {
+            return;
+        }
+
+        var reserveKey = $"{context.IdempotencyKey}:cash-sync-withdraw";
+        try
+        {
+            var reserve = cashService.TryReserve(
+                reserveKey,
+                tradingAccountId,
+                currency,
+                amount,
+                context.TriggerId,
+                allocationId);
+
+            if (!reserve.Succeeded)
+            {
+                return;
+            }
+
+            cashService.TryConsumeReservation(reserveKey, context.TriggerId);
         }
         finally
         {

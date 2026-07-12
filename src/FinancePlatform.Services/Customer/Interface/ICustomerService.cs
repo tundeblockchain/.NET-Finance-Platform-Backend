@@ -12,6 +12,8 @@ public interface ICustomerService
 
     ComponentOperationResult DepositMoney(TriggerContext context, CustomerDepositRequest request);
 
+    ComponentOperationResult ReceiveMoney(TriggerContext context, CustomerReceiveMoneyRequest request);
+
     ComponentOperationResult DistributeMoney(
         TriggerContext context,
         DistributeMoneyRequest request,
