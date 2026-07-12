@@ -2,7 +2,7 @@ using FinancePlatform.Models.Enums;
 
 namespace FinancePlatform.Models.Entities;
 
-public sealed class Order
+public sealed class Order : IAuditableEntity
 {
     public Guid Id { get; set; }
 
@@ -27,4 +27,8 @@ public sealed class Order
     public DateTimeOffset CreatedUtc { get; set; }
 
     public DateTimeOffset? SubmittedUtc { get; set; }
+
+    public DateTimeOffset DateModified { get; set; }
+
+    public string ChangedBy { get; set; } = ChangeActors.System;
 }

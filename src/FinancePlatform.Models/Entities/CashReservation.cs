@@ -1,6 +1,6 @@
 namespace FinancePlatform.Models.Entities;
 
-public sealed class CashReservation
+public sealed class CashReservation : IAuditableEntity
 {
     public Guid Id { get; set; }
 
@@ -21,4 +21,8 @@ public sealed class CashReservation
     public DateTimeOffset CreatedUtc { get; set; }
 
     public DateTimeOffset? ReleasedUtc { get; set; }
+
+    public DateTimeOffset DateModified { get; set; }
+
+    public string ChangedBy { get; set; } = ChangeActors.System;
 }

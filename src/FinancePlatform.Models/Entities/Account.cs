@@ -1,6 +1,6 @@
 namespace FinancePlatform.Models.Entities;
 
-public sealed class Account
+public sealed class Account : IAuditableEntity
 {
     public Guid Id { get; set; }
 
@@ -13,4 +13,8 @@ public sealed class Account
     public bool IsActive { get; set; } = true;
 
     public DateTimeOffset CreatedUtc { get; set; }
+
+    public DateTimeOffset DateModified { get; set; }
+
+    public string ChangedBy { get; set; } = ChangeActors.System;
 }

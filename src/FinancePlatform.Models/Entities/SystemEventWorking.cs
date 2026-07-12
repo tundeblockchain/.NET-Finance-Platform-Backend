@@ -1,6 +1,9 @@
 namespace FinancePlatform.Models.Entities;
 
-public sealed class SystemEventWorking
+/// <summary>
+/// Currently claimed trigger lease. No archive table.
+/// </summary>
+public sealed class SystemEventWorking : IAuditableEntity
 {
     public Guid TriggerId { get; set; }
 
@@ -13,4 +16,8 @@ public sealed class SystemEventWorking
     public DateTimeOffset HeartbeatUtc { get; set; }
 
     public DateTimeOffset LeaseExpiresUtc { get; set; }
+
+    public DateTimeOffset DateModified { get; set; }
+
+    public string ChangedBy { get; set; } = ChangeActors.Broker;
 }

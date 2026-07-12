@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="FluentAssertions" Version="8.10.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="NSubstitute" Version="5.3.0" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -23,6 +24,8 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FinancePlatform.Models\FinancePlatform.Models.csproj" />
     <ProjectReference Include="..\..\src\FinancePlatform.Services\FinancePlatform.Services.csproj" />
+    <ProjectReference Include="..\..\src\FinancePlatform.Data\FinancePlatform.Data.csproj" />
+    <ProjectReference Include="..\..\src\FinancePlatform.Worker\FinancePlatform.Worker.csproj" />
   </ItemGroup>
 
 </Project>

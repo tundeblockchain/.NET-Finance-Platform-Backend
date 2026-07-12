@@ -1,6 +1,6 @@
 namespace FinancePlatform.Models.Entities;
 
-public sealed class CashBalance
+public sealed class CashBalance : IAuditableEntity
 {
     public Guid Id { get; set; }
 
@@ -24,5 +24,7 @@ public sealed class CashBalance
 
     public DateTimeOffset? LockExpiresUtc { get; set; }
 
-    public DateTimeOffset UpdatedUtc { get; set; }
+    public DateTimeOffset DateModified { get; set; }
+
+    public string ChangedBy { get; set; } = ChangeActors.System;
 }

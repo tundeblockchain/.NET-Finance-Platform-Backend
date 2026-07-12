@@ -2,7 +2,10 @@ using FinancePlatform.Models.Enums;
 
 namespace FinancePlatform.Models.Entities;
 
-public sealed class SystemEventTrigger
+/// <summary>
+/// Durable trigger row. No archive table — broker lifecycle SPs mutate this row in place.
+/// </summary>
+public sealed class SystemEventTrigger : IAuditableEntity
 {
     public Guid Id { get; set; }
 
@@ -45,4 +48,8 @@ public sealed class SystemEventTrigger
     public DateTimeOffset CreatedUtc { get; set; }
 
     public DateTimeOffset? CompletedUtc { get; set; }
+
+    public DateTimeOffset DateModified { get; set; }
+
+    public string ChangedBy { get; set; } = ChangeActors.Broker;
 }

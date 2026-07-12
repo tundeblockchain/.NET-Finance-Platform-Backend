@@ -2,7 +2,7 @@ using FinancePlatform.Models.Enums;
 
 namespace FinancePlatform.Models.Entities;
 
-public sealed class LedgerEntry
+public sealed class LedgerEntry : IAuditableEntity
 {
     public Guid Id { get; set; }
 
@@ -23,4 +23,8 @@ public sealed class LedgerEntry
     public required string Description { get; set; }
 
     public DateTimeOffset PostedUtc { get; set; }
+
+    public DateTimeOffset DateModified { get; set; }
+
+    public string ChangedBy { get; set; } = ChangeActors.System;
 }

@@ -63,11 +63,18 @@ dotnet run --project src/FinancePlatform.Worker
 ```
 
 The Worker loads queue configuration from `appsettings.json` (`Broker:Queues`).
-Trigger claim/execute loops are stubs until Phase 2.
+On startup it seeds a sample deposit → buy workflow (disable with
+`Broker:SeedSampleWorkflowOnStartup=false`).
+
+Persistence defaults to **InMemory**. To use SQL Server:
+
+1. Apply scripts under `db/SqlServer/` (`Tables/`, `Archives/`, `Procedures/`)
+2. Set `Persistence:Provider` to `SqlServer`
+3. Set `ConnectionStrings:FinancePlatform`
 
 ## Current phase
 
-**Phase 1 — Core domain models & trigger contracts:** entities, trigger context,
-code ranges, status transitions, `ITriggerHandler` / `IComponent` registry.
-Scalar API documentation is available at `/scalar`.
-Trigger engine runtime starts in Phase 2.
+**Phase 3 — SQL persistence:** schema, archive tables (`*_a`), `get_<Model>_f` /
+`<Model>_u` SPs, Dapper repositories, `SqlTriggerStore`. Trigger tables have no
+archives; broker sets `ChangedBy = broker`.
+

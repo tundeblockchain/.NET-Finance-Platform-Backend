@@ -2,7 +2,7 @@ using FinancePlatform.Models.Enums;
 
 namespace FinancePlatform.Models.Entities;
 
-public sealed class AllocationRequest
+public sealed class AllocationRequest : IAuditableEntity
 {
     public Guid Id { get; set; }
 
@@ -23,4 +23,8 @@ public sealed class AllocationRequest
     public DateTimeOffset CreatedUtc { get; set; }
 
     public DateTimeOffset? CompletedUtc { get; set; }
+
+    public DateTimeOffset DateModified { get; set; }
+
+    public string ChangedBy { get; set; } = ChangeActors.System;
 }

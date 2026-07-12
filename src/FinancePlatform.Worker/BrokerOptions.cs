@@ -6,14 +6,9 @@ public sealed class BrokerOptions
 
     public string WorkerInstanceId { get; set; } = Environment.MachineName;
 
+    public int LeaseDurationSeconds { get; set; } = 30;
+
+    public bool SeedSampleWorkflowOnStartup { get; set; } = true;
+
     public IReadOnlyList<QueueOptions> Queues { get; set; } = [];
-}
-
-public sealed class QueueOptions
-{
-    public string Name { get; set; } = string.Empty;
-
-    public int MaxConcurrency { get; set; } = 1;
-
-    public int PollIntervalMilliseconds { get; set; } = 1000;
 }
