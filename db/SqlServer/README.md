@@ -1,6 +1,30 @@
 # SQL Server scripts
 
-Apply against database `FinancePlatform` in this order:
+## Deploy (recommended)
+
+From this folder, with `sqlcmd` on PATH:
+
+```powershell
+.\Deploy-SqlServer.ps1
+```
+
+Options:
+
+```powershell
+# Named instance
+.\Deploy-SqlServer.ps1 -Server "localhost\SQLEXPRESS"
+
+# SQL authentication
+.\Deploy-SqlServer.ps1 -Server "myserver" -Username sa -Password "YourPassword"
+
+# Skip create-database (DB already exists)
+.\Deploy-SqlServer.ps1 -SkipCreateDatabase
+
+# Preview only
+.\Deploy-SqlServer.ps1 -WhatIf
+```
+
+The script applies scripts in this order:
 
 1. `00_CreateDatabase.sql`
 2. `Tables/*.sql` — one file per main table

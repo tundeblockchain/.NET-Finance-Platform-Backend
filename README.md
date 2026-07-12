@@ -68,7 +68,7 @@ On startup it seeds a sample deposit → buy workflow (disable with
 
 Persistence defaults to **InMemory**. To use SQL Server:
 
-1. Apply scripts under `db/SqlServer/` (`Tables/`, `Archives/`, `Procedures/`)
+1. Deploy scripts: `db/SqlServer/Deploy-SqlServer.ps1` (or apply `Tables/`, `Archives/`, `Procedures/` manually)
 2. Set `Persistence:Provider` to `SqlServer`
 3. Set `ConnectionStrings:FinancePlatform`
 
