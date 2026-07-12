@@ -19,6 +19,21 @@ public sealed class TriggerExecutionService(
         ArgumentNullException.ThrowIfNull(claimed);
 
         var trigger = claimed.Trigger;
+        using (logger.BeginScope(new Dictionary<string, object>
+        {
+            ["CorrelationId"] = trigger.CorrelationId,
+            ["RootWorkflowId"] = trigger.RootWorkflowId,
+            ["TriggerId"] = trigger.Id,
+            ["TriggerCode"] = trigger.TriggerCode
+        }))
+        {
+            await ExecuteCoreAsync(claimed, cancellationToken);
+        }
+    }
+
+    private async Task ExecuteCoreAsync(ClaimedTrigger claimed, CancellationToken cancellationToken)
+    {
+        var trigger = claimed.Trigger;
         var context = ToContext(trigger);
         context.EnsureValid();
 
@@ -32,10 +47,11 @@ public sealed class TriggerExecutionService(
         }
 
         logger.LogInformation(
-            "EP {EventProcessor} picked up trigger {TriggerId} code={TriggerCode}",
+            "EP {EventProcessor} picked up trigger {TriggerId} code={TriggerCode} correlation={CorrelationId}",
             processor.Name,
             trigger.Id,
-            trigger.TriggerCode);
+            trigger.TriggerCode,
+            trigger.CorrelationId);
 
         var raiser = new TriggerRaiseBuffer();
         TriggerHandlerResult result;
@@ -47,6 +63,14 @@ public sealed class TriggerExecutionService(
                 trigger.PayloadJson,
                 raiser,
                 cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                "EP {EventProcessor} cancelled for trigger {TriggerId}; leaving lease for recovery",
+                processor.Name,
+                trigger.Id);
+            throw;
         }
         catch (Exception ex)
         {
@@ -107,14 +131,12 @@ public sealed class TriggerExecutionService(
         await EnqueueChildrenAsync(trigger, children, cancellationToken);
 
         logger.LogInformation(
-            "Trigger completed: EP={EventProcessor} TriggerId={TriggerId} Code={TriggerCode} Children={ChildCount}",
+            "Trigger completed: EP={EventProcessor} TriggerId={TriggerId} Code={TriggerCode} CorrelationId={CorrelationId} Children={ChildCount}",
             eventProcessorName,
             trigger.Id,
             trigger.TriggerCode,
+            trigger.CorrelationId,
             children.Count);
-
-        Console.WriteLine(
-            $"[Trigger completed] EP={eventProcessorName} Id={trigger.Id} Code={trigger.TriggerCode} Children={children.Count}");
     }
 
     private async Task FailWithCompensationAsync(

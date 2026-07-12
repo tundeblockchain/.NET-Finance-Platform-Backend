@@ -155,6 +155,35 @@ public sealed class SqlTriggerStore(IDbConnectionFactory connectionFactory) : IT
                 cancellationToken: cancellationToken));
     }
 
+    public async Task<IReadOnlyList<RecoveredTrigger>> RecoverExpiredLeasesAsync(
+        int batchSize,
+        DateTimeOffset? nextAttemptUtc = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = connectionFactory.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+
+        var rows = (await connection.QueryAsync<SystemEventTrigger>(
+            new CommandDefinition(
+                TriggerProcedureNames.RecoverExpired,
+                new
+                {
+                    BatchSize = Math.Clamp(batchSize, 1, 500),
+                    NextAttemptUtc = nextAttemptUtc
+                },
+                commandType: CommandType.StoredProcedure,
+                cancellationToken: cancellationToken))).ToArray();
+
+        return rows
+            .Select(t => new RecoveredTrigger
+            {
+                Trigger = t,
+                PreviousWorkerInstanceId = "unknown",
+                PreviousLeaseExpiresUtc = DateTimeOffset.MinValue
+            })
+            .ToArray();
+    }
+
     public async Task<SystemEventTrigger?> GetByIdAsync(Guid triggerId, CancellationToken cancellationToken = default)
     {
         await using var connection = connectionFactory.CreateConnection();

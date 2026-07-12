@@ -6,14 +6,17 @@ using FinancePlatform.Models.Triggers;
 namespace FinancePlatform.Data.Triggers;
 
 /// <summary>
-/// Thread-safe in-memory trigger store used until SQL Server (Phase 3).
+/// Thread-safe in-memory trigger store.
 /// </summary>
-public sealed class InMemoryTriggerStore : ITriggerStore
+public sealed class InMemoryTriggerStore(TimeProvider? timeProvider = null) : ITriggerStore
 {
+    private readonly TimeProvider _clock = timeProvider ?? TimeProvider.System;
     private readonly object _gate = new();
     private readonly Dictionary<Guid, SystemEventTrigger> _triggers = new();
     private readonly Dictionary<Guid, SystemEventWorking> _working = new();
     private readonly Dictionary<string, Guid> _idempotencyIndex = new(StringComparer.Ordinal);
+
+    private DateTimeOffset UtcNow => _clock.GetUtcNow();
 
     public Task<SystemEventTrigger> EnqueueAsync(EnqueueTriggerCommand command, CancellationToken cancellationToken = default)
     {
@@ -28,7 +31,7 @@ public sealed class InMemoryTriggerStore : ITriggerStore
                 return Task.FromResult(Clone(existing));
             }
 
-            var now = DateTimeOffset.UtcNow;
+            var now = UtcNow;
             var trigger = new SystemEventTrigger
             {
                 Id = Guid.NewGuid(),
@@ -71,7 +74,7 @@ public sealed class InMemoryTriggerStore : ITriggerStore
 
         lock (_gate)
         {
-            var now = DateTimeOffset.UtcNow;
+            var now = UtcNow;
             var candidate = _triggers.Values
                 .Where(t =>
                     t.QueueName == queueName
@@ -125,7 +128,7 @@ public sealed class InMemoryTriggerStore : ITriggerStore
             TriggerStatusTransitions.EnsureCanTransition(trigger.Status, TriggerStatus.Completed);
             trigger.Status = TriggerStatus.Completed;
             trigger.ResultJson = resultJson;
-            trigger.CompletedUtc = DateTimeOffset.UtcNow;
+            trigger.CompletedUtc = UtcNow;
             trigger.LastError = null;
             TouchBroker(trigger, trigger.CompletedUtc.Value);
             _working.Remove(triggerId);
@@ -147,7 +150,7 @@ public sealed class InMemoryTriggerStore : ITriggerStore
             TriggerStatusTransitions.EnsureCanTransition(trigger.Status, TriggerStatus.Pending);
             trigger.Status = TriggerStatus.Pending;
             trigger.NextAttemptUtc = nextAttemptUtc;
-            TouchBroker(trigger, DateTimeOffset.UtcNow);
+            TouchBroker(trigger, UtcNow);
             _working.Remove(triggerId);
         }
 
@@ -164,7 +167,7 @@ public sealed class InMemoryTriggerStore : ITriggerStore
             TriggerStatusTransitions.EnsureCanTransition(trigger.Status, TriggerStatus.Failed);
             trigger.Status = TriggerStatus.Failed;
             trigger.LastError = error;
-            trigger.CompletedUtc = DateTimeOffset.UtcNow;
+            trigger.CompletedUtc = UtcNow;
             TouchBroker(trigger, trigger.CompletedUtc.Value);
             _working.Remove(triggerId);
         }
@@ -182,7 +185,7 @@ public sealed class InMemoryTriggerStore : ITriggerStore
             TriggerStatusTransitions.EnsureCanTransition(trigger.Status, TriggerStatus.Compensation);
             trigger.Status = TriggerStatus.Compensation;
             trigger.LastError = error;
-            TouchBroker(trigger, DateTimeOffset.UtcNow);
+            TouchBroker(trigger, UtcNow);
             _working.Remove(triggerId);
         }
 
@@ -206,7 +209,7 @@ public sealed class InMemoryTriggerStore : ITriggerStore
                     $"Worker '{workerInstanceId}' does not own trigger {triggerId}.");
             }
 
-            var now = DateTimeOffset.UtcNow;
+            var now = UtcNow;
             working.HeartbeatUtc = now;
             working.LeaseExpiresUtc = now.Add(leaseDuration);
             working.DateModified = now;
@@ -214,6 +217,69 @@ public sealed class InMemoryTriggerStore : ITriggerStore
         }
 
         return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<RecoveredTrigger>> RecoverExpiredLeasesAsync(
+        int batchSize,
+        DateTimeOffset? nextAttemptUtc = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        batchSize = Math.Max(1, batchSize);
+
+        lock (_gate)
+        {
+            var now = UtcNow;
+            var attemptAt = nextAttemptUtc ?? now;
+            var expired = _working.Values
+                .Where(w => w.LeaseExpiresUtc <= now)
+                .OrderBy(w => w.LeaseExpiresUtc)
+                .Take(batchSize)
+                .ToArray();
+
+            var recovered = new List<RecoveredTrigger>(expired.Length);
+            foreach (var working in expired)
+            {
+                if (!_triggers.TryGetValue(working.TriggerId, out var trigger))
+                {
+                    _working.Remove(working.TriggerId);
+                    continue;
+                }
+
+                if (trigger.Status is not (TriggerStatus.Running or TriggerStatus.Claimed))
+                {
+                    _working.Remove(working.TriggerId);
+                    continue;
+                }
+
+                var previousWorker = working.WorkerInstanceId;
+                var previousLease = working.LeaseExpiresUtc;
+
+                if (trigger.Status == TriggerStatus.Claimed)
+                {
+                    TriggerStatusTransitions.EnsureCanTransition(trigger.Status, TriggerStatus.Running);
+                    trigger.Status = TriggerStatus.Running;
+                }
+
+                TriggerStatusTransitions.EnsureCanTransition(trigger.Status, TriggerStatus.Retry);
+                trigger.Status = TriggerStatus.Retry;
+                trigger.LastError = "lease expired";
+                TriggerStatusTransitions.EnsureCanTransition(trigger.Status, TriggerStatus.Pending);
+                trigger.Status = TriggerStatus.Pending;
+                trigger.NextAttemptUtc = attemptAt;
+                TouchBroker(trigger, now);
+                _working.Remove(working.TriggerId);
+
+                recovered.Add(new RecoveredTrigger
+                {
+                    Trigger = Clone(trigger),
+                    PreviousWorkerInstanceId = previousWorker,
+                    PreviousLeaseExpiresUtc = previousLease
+                });
+            }
+
+            return Task.FromResult<IReadOnlyList<RecoveredTrigger>>(recovered);
+        }
     }
 
     public Task<SystemEventTrigger?> GetByIdAsync(Guid triggerId, CancellationToken cancellationToken = default)

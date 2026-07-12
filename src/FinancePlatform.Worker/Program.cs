@@ -8,6 +8,7 @@ var builder = Host.CreateApplicationBuilder(args);
 
 builder.Services.Configure<BrokerOptions>(builder.Configuration.GetSection(BrokerOptions.SectionName));
 builder.Services.Configure<TriggerRetryOptions>(builder.Configuration.GetSection(TriggerRetryOptions.SectionName));
+builder.Services.Configure<TriggerRecoveryOptions>(builder.Configuration.GetSection(TriggerRecoveryOptions.SectionName));
 builder.Services.AddTriggerEngine(builder.Configuration);
 
 builder.Services.AddSingleton<ITriggerEventProcessor, CashEP>();
@@ -28,10 +29,13 @@ foreach (var queue in brokerOptions.Queues)
             sp.GetRequiredService<TriggerClaimService>(),
             sp.GetRequiredService<TriggerExecutionService>(),
             sp.GetRequiredService<TriggerHeartbeatService>(),
+            sp.GetRequiredService<WorkerHealthTracker>(),
             sp.GetRequiredService<IOptions<BrokerOptions>>(),
+            sp.GetRequiredService<IOptions<TriggerRecoveryOptions>>(),
             captured));
 }
 
+builder.Services.AddHostedService<TriggerRecoveryHostedService>();
 builder.Services.AddHostedService<SampleWorkflowHostedService>();
 
 var host = builder.Build();

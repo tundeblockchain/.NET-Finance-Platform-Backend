@@ -9,6 +9,7 @@ public static class TriggerProcedureNames
     public const string Fail = "FailTrigger";
     public const string MarkCompensation = "MarkCompensationTrigger";
     public const string Heartbeat = "HeartbeatTrigger";
+    public const string RecoverExpired = "RecoverExpiredTriggers";
     public const string GetById = "get_SystemEventTrigger_f";
     public const string GetByIdempotencyKey = "get_SystemEventTrigger_ByIdempotencyKey_f";
     public const string Upsert = "SystemEventTrigger_u";

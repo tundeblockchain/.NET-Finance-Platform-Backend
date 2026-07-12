@@ -71,7 +71,7 @@ public static class TriggerEngineServiceCollectionExtensions
 
         services.AddSingleton<IWorkflowEnqueueService, WorkflowEnqueueService>();
         services.AddSingleton(TimeProvider.System);
-
+        services.AddSingleton<WorkerHealthTracker>();
         services.AddSingleton<TriggerEventProcessorRegistry>(sp =>
         {
             var registry = new TriggerEventProcessorRegistry();
@@ -86,6 +86,7 @@ public static class TriggerEngineServiceCollectionExtensions
         services.AddSingleton<TriggerClaimService>();
         services.AddSingleton<TriggerRetryService>();
         services.AddSingleton<TriggerHeartbeatService>();
+        services.AddSingleton<TriggerRecoveryService>();
         services.AddSingleton<TriggerExecutionService>();
 
         return services;

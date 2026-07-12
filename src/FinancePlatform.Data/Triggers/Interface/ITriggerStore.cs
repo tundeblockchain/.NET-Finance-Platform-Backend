@@ -25,6 +25,15 @@ public interface ITriggerStore
 
     Task HeartbeatAsync(Guid triggerId, string workerInstanceId, TimeSpan leaseDuration, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Requeues triggers whose working lease has expired (Running → Pending via Retry).
+    /// Safe to call concurrently; each expired lease is recovered at most once.
+    /// </summary>
+    Task<IReadOnlyList<RecoveredTrigger>> RecoverExpiredLeasesAsync(
+        int batchSize,
+        DateTimeOffset? nextAttemptUtc = null,
+        CancellationToken cancellationToken = default);
+
     Task<SystemEventTrigger?> GetByIdAsync(Guid triggerId, CancellationToken cancellationToken = default);
 
     Task<SystemEventTrigger?> FindByIdempotencyKeyAsync(string idempotencyKey, CancellationToken cancellationToken = default);

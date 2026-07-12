@@ -60,22 +60,6 @@ dotnet run --project src/FinancePlatform.Api
   - `POST /api/workflows/sells`
   - `POST /api/workflows/allocations` (6002 → … → 9001)
 
-Example deposit:
-
-```http
-POST /api/workflows/deposits
-Content-Type: application/json
-
-{
-  "accountId": "11111111-1111-1111-1111-111111111111",
-  "amount": 1000,
-  "currency": "GBP",
-  "assetSymbol": "VWRL",
-  "quantity": 5,
-  "idempotencyKey": "demo-deposit-1"
-}
-```
-
 With `Persistence:Provider=InMemory`, API and Worker do **not** share a store (separate processes).
 Use `SqlServer` for API → Worker end-to-end, or rely on the Worker sample seed / unit tests for local demos.
 
@@ -98,38 +82,10 @@ Persistence defaults to **InMemory**. To use SQL Server:
 
 ## Current phase
 
-**Phase 5 — Trading / asset buy-sell** with component **Event Processors** and **main services**:
+**Phase 6 — Heartbeats, recovery & worker hardening:**
 
-`CustomerEP → CustomerService → Customer models`  
-`TradeEP → TradeService → Trade models`  
-`InvestmentEP → InvestmentService → Investment models`  
-`AssetEP → AssetService → Asset models`  
-(+ `AllocationService`, cash primitives, orders, positions, ledger)
-
-EPs switch on trigger code, call the component service, then `RaiseTrigger` for follow-ons.
-Completion logs to the console (`[Trigger completed] ...`).
-
-
-
-## Run the Worker (service broker)
-
-```bash
-cd backend
-dotnet run --project src/FinancePlatform.Worker
-```
-
-The Worker loads queue configuration from `appsettings.json` (`Broker:Queues`).
-On startup it seeds a sample deposit → buy workflow (disable with
-`Broker:SeedSampleWorkflowOnStartup=false`).
-
-Persistence defaults to **InMemory**. To use SQL Server:
-
-1. Deploy scripts: `db/SqlServer/Deploy-SqlServer.ps1` (or apply `Tables/`, `Archives/`, `Procedures/` manually)
-2. Set `Persistence:Provider` to `SqlServer`
-3. Set `ConnectionStrings:FinancePlatform`
-
-## Current phase
-
-**Phase 5 — Trading / asset buy-sell:** cash-aware buy/sell (`reserve` → order →
-position → ledger), allocation chain `6002→7001→7002→8001→8002→9001`, compensating
-reversals, `SubmitOrder` SP, and thin API enqueue endpoints.
+- Queue heartbeat (throttled logs) + trigger lease refresh while EPs run
+- `TriggerRecoveryService` / `RecoverExpiredTriggers` SP: expired leases → Pending
+- Config: poll/concurrency/retry + recovery/heartbeat intervals under `Broker`
+- Correlation / root workflow / trigger id on execution logs via `BeginScope`
+- Heartbeat failure marks worker unhealthy and pauses claims

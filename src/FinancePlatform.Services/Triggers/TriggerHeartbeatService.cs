@@ -1,24 +1,38 @@
 using System.Collections.Concurrent;
 using FinancePlatform.Data.Triggers;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace FinancePlatform.Services.Triggers;
 
 public sealed class TriggerHeartbeatService(
     ITriggerStore triggerStore,
     TimeProvider timeProvider,
+    IOptions<TriggerRecoveryOptions> recoveryOptions,
+    WorkerHealthTracker healthTracker,
     ILogger<TriggerHeartbeatService> logger)
 {
-    private static readonly TimeSpan LogInterval = TimeSpan.FromSeconds(5);
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastLogUtcByQueue = new();
 
-    public Task BeatQueueAsync(string workerInstanceId, string queueName, CancellationToken cancellationToken = default)
+    public bool IsHealthy => healthTracker.IsHealthy;
+
+    public async Task BeatQueueAsync(string workerInstanceId, string queueName, CancellationToken cancellationToken = default)
     {
+        if (!healthTracker.IsHealthy)
+        {
+            logger.LogWarning(
+                "Skipping queue heartbeat; worker unhealthy reason={Reason} queue={QueueName}",
+                healthTracker.UnhealthyReason,
+                queueName);
+            return;
+        }
+
+        var logInterval = TimeSpan.FromSeconds(Math.Max(1, recoveryOptions.Value.QueueHeartbeatLogIntervalSeconds));
         var now = timeProvider.GetUtcNow();
         if (_lastLogUtcByQueue.TryGetValue(queueName, out var lastLogUtc)
-            && now - lastLogUtc < LogInterval)
+            && now - lastLogUtc < logInterval)
         {
-            return Task.CompletedTask;
+            return;
         }
 
         _lastLogUtcByQueue[queueName] = now;
@@ -26,16 +40,29 @@ public sealed class TriggerHeartbeatService(
             "Queue heartbeat worker={WorkerInstanceId} queue={QueueName}",
             workerInstanceId,
             queueName);
-
-        return Task.CompletedTask;
+        await Task.CompletedTask;
     }
 
-    public Task BeatTriggerAsync(
+    public async Task BeatTriggerAsync(
         Guid triggerId,
         string workerInstanceId,
         TimeSpan leaseDuration,
         CancellationToken cancellationToken = default)
     {
-        return triggerStore.HeartbeatAsync(triggerId, workerInstanceId, leaseDuration, cancellationToken);
+        try
+        {
+            await triggerStore.HeartbeatAsync(triggerId, workerInstanceId, leaseDuration, cancellationToken);
+            healthTracker.MarkHealthy();
+        }
+        catch (Exception ex)
+        {
+            healthTracker.MarkUnhealthy($"Trigger heartbeat failed for {triggerId}: {ex.Message}");
+            logger.LogError(
+                ex,
+                "Trigger heartbeat failed trigger={TriggerId} worker={WorkerInstanceId}",
+                triggerId,
+                workerInstanceId);
+            throw;
+        }
     }
 }
