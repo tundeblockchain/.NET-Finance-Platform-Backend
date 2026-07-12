@@ -1,7 +1,7 @@
 using FinancePlatform.Services;
 using FinancePlatform.Services.Triggers;
 using FinancePlatform.Worker;
-using FinancePlatform.Worker.Handlers;
+using FinancePlatform.Worker.EventProcessors;
 using Microsoft.Extensions.Options;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -10,9 +10,11 @@ builder.Services.Configure<BrokerOptions>(builder.Configuration.GetSection(Broke
 builder.Services.Configure<TriggerRetryOptions>(builder.Configuration.GetSection(TriggerRetryOptions.SectionName));
 builder.Services.AddTriggerEngine(builder.Configuration);
 
-builder.Services.AddSingleton<ITriggerHandler, DepositCashHandler>();
-builder.Services.AddSingleton<ITriggerHandler, BuyAssetHandler>();
-builder.Services.AddSingleton<ITriggerHandler, ReverseBuyAssetHandler>();
+builder.Services.AddSingleton<ITriggerEventProcessor, CashEP>();
+builder.Services.AddSingleton<ITriggerEventProcessor, CustomerEP>();
+builder.Services.AddSingleton<ITriggerEventProcessor, TradeEP>();
+builder.Services.AddSingleton<ITriggerEventProcessor, InvestmentEP>();
+builder.Services.AddSingleton<ITriggerEventProcessor, AssetEP>();
 
 var brokerOptions = builder.Configuration.GetSection(BrokerOptions.SectionName).Get<BrokerOptions>()
     ?? new BrokerOptions();

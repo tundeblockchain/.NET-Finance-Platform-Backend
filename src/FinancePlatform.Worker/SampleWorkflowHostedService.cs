@@ -1,9 +1,9 @@
 using System.Text.Json;
 using FinancePlatform.Data.Triggers;
+using FinancePlatform.Models.Cash;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Triggers;
-using FinancePlatform.Worker.Handlers;
 using Microsoft.Extensions.Options;
 
 namespace FinancePlatform.Worker;
@@ -28,7 +28,7 @@ public sealed class SampleWorkflowHostedService(
 
         var accountId = Guid.Parse("11111111-1111-1111-1111-111111111111");
         var rootWorkflowId = Guid.NewGuid();
-        var payload = new DepositCashPayload
+        var payload = new DepositCashRequest
         {
             Amount = 1000m,
             Currency = "GBP",

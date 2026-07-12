@@ -1,9 +1,15 @@
 using FinancePlatform.Data;
-using FinancePlatform.Data.Triggers;
+using FinancePlatform.Services.Allocation;
+using FinancePlatform.Services.Asset;
 using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Ledger;
-using FinancePlatform.Services.Trading;
+using FinancePlatform.Services.Orders;
+using FinancePlatform.Services.Positions;
+using FinancePlatform.Services.Trade;
 using FinancePlatform.Services.Triggers;
+using FinancePlatform.Services.Workflows;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -35,47 +41,43 @@ public static class TriggerEngineServiceCollectionExtensions
             services.AddInMemoryPersistence();
         }
 
-        services.AddSingleton<ICashService, InMemoryCashService>();
-        services.AddSingleton<ILedgerService, InMemoryLedgerService>();
-        services.AddSingleton<ITradingService, InMemoryTradingService>();
-        services.AddSingleton(TimeProvider.System);
-
-        services.AddSingleton<TriggerHandlerRegistry>(sp =>
-        {
-            var registry = new TriggerHandlerRegistry();
-            foreach (var handler in sp.GetServices<ITriggerHandler>())
-            {
-                registry.RegisterHandler(handler);
-            }
-
-            return registry;
-        });
-
-        services.AddSingleton<TriggerClaimService>();
-        services.AddSingleton<TriggerRetryService>();
-        services.AddSingleton<TriggerHeartbeatService>();
-        services.AddSingleton<TriggerExecutionService>();
-
-        return services;
+        return AddTriggerEngineCore(services);
     }
 
     /// <summary>
-    /// Phase 2 helper — always uses the in-memory trigger store.
+    /// Always uses the in-memory trigger store.
     /// </summary>
     public static IServiceCollection AddInMemoryTriggerEngine(this IServiceCollection services)
     {
         services.AddInMemoryPersistence();
+        return AddTriggerEngineCore(services);
+    }
+
+    private static IServiceCollection AddTriggerEngineCore(IServiceCollection services)
+    {
+        // Supporting / primitive services
         services.AddSingleton<ICashService, InMemoryCashService>();
         services.AddSingleton<ILedgerService, InMemoryLedgerService>();
-        services.AddSingleton<ITradingService, InMemoryTradingService>();
+        services.AddSingleton<IPositionService, InMemoryPositionService>();
+        services.AddSingleton<IOrderService, InMemoryOrderService>();
+
+        // Main component services (EP → Service → Models)
+        services.AddSingleton<IAllocationService, AllocationService>();
+        services.AddSingleton<ICashComponentService, CashComponentService>();
+        services.AddSingleton<ICustomerService, CustomerService>();
+        services.AddSingleton<ITradeService, TradeService>();
+        services.AddSingleton<IInvestmentService, InvestmentService>();
+        services.AddSingleton<IAssetService, AssetService>();
+
+        services.AddSingleton<IWorkflowEnqueueService, WorkflowEnqueueService>();
         services.AddSingleton(TimeProvider.System);
 
-        services.AddSingleton<TriggerHandlerRegistry>(sp =>
+        services.AddSingleton<TriggerEventProcessorRegistry>(sp =>
         {
-            var registry = new TriggerHandlerRegistry();
-            foreach (var handler in sp.GetServices<ITriggerHandler>())
+            var registry = new TriggerEventProcessorRegistry();
+            foreach (var processor in sp.GetServices<ITriggerEventProcessor>())
             {
-                registry.RegisterHandler(handler);
+                registry.Register(processor);
             }
 
             return registry;

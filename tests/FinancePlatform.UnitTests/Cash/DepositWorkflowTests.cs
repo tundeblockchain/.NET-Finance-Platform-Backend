@@ -1,8 +1,12 @@
+using System.Text.Json;
+using FinancePlatform.Models.Cash;
 using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
+using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Ledger;
-using FinancePlatform.Worker.Handlers;
+using FinancePlatform.Services.Triggers;
+using FinancePlatform.Worker.EventProcessors;
 using FluentAssertions;
 
 namespace FinancePlatform.UnitTests.Cash;
@@ -10,13 +14,14 @@ namespace FinancePlatform.UnitTests.Cash;
 public class DepositWorkflowTests
 {
     [Fact]
-    public async Task Deposit_handler_locks_credits_posts_ledger_and_unlocks()
+    public async Task Deposit_ep_locks_credits_posts_ledger_unlocks_and_raises_buy()
     {
         var cash = new InMemoryCashService();
         var ledger = new InMemoryLedgerService();
-        var handler = new DepositCashHandler(cash, ledger);
+        var ep = new CashEP(new CashComponentService(cash, ledger));
         var accountId = Guid.NewGuid();
         var triggerId = Guid.NewGuid();
+        var raiser = new TriggerRaiseBuffer();
 
         var context = new TriggerContext
         {
@@ -30,22 +35,29 @@ public class DepositWorkflowTests
             IdempotencyKey = new("wf-deposit-1")
         };
 
-        var payload = """{"Amount":150.0,"Currency":"GBP","AssetSymbol":"VWRL","Quantity":1.0}""";
-        var result = await handler.ExecuteAsync(context, payload, CancellationToken.None);
+        var payload = JsonSerializer.Serialize(new DepositCashRequest
+        {
+            Amount = 150m,
+            Currency = "GBP",
+            AssetSymbol = "VWRL",
+            Quantity = 1m
+        });
+        var result = await ep.ProcessAsync(context, TriggerCodes.DepositCash, payload, raiser, CancellationToken.None);
 
         result.ResultCode.Should().Be(TriggerResultCode.Success);
         cash.GetSettled(accountId, "GBP").Should().Be(150m);
         cash.GetOrCreateBalance(accountId, "GBP").IsLocked.Should().BeFalse();
         ledger.EntryCount.Should().Be(1);
         ledger.FindByIdempotencyKey("wf-deposit-1:ledger").Should().NotBeNull();
+        raiser.Raised.Should().ContainSingle(t => t.TriggerCode == TriggerCodes.BuyAsset);
     }
 
     [Fact]
-    public async Task Deposit_handler_retries_when_lock_is_contended()
+    public async Task Deposit_ep_retries_when_lock_is_contended()
     {
         var cash = new InMemoryCashService();
         var ledger = new InMemoryLedgerService();
-        var handler = new DepositCashHandler(cash, ledger);
+        var ep = new CashEP(new CashComponentService(cash, ledger));
         var accountId = Guid.NewGuid();
 
         cash.TryAcquireLock(accountId, "GBP", Guid.NewGuid(), null, TimeSpan.FromMinutes(5));
@@ -62,9 +74,11 @@ public class DepositWorkflowTests
             IdempotencyKey = new("wf-deposit-retry")
         };
 
-        var result = await handler.ExecuteAsync(
+        var result = await ep.ProcessAsync(
             context,
-            """{"Amount":10.0,"Currency":"GBP"}""",
+            TriggerCodes.DepositCash,
+            JsonSerializer.Serialize(new DepositCashRequest { Amount = 10m, Currency = "GBP" }),
+            new TriggerRaiseBuffer(),
             CancellationToken.None);
 
         result.ResultCode.Should().Be(TriggerResultCode.Retry);

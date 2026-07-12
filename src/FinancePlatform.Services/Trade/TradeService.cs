@@ -1,0 +1,340 @@
+using FinancePlatform.Models.Allocation;
+using FinancePlatform.Models.Components;
+using FinancePlatform.Models.Dtos;
+using FinancePlatform.Models.Enums;
+using FinancePlatform.Models.Trade;
+using FinancePlatform.Models.Triggers;
+using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Ledger;
+using FinancePlatform.Services.Orders;
+using FinancePlatform.Services.Positions;
+
+namespace FinancePlatform.Services.Trade;
+
+/// <summary>
+/// Main trading component service. Uses cash, orders, positions, and ledger as supporting services.
+/// </summary>
+public sealed class TradeService(
+    ICashService cashService,
+    ILedgerService ledgerService,
+    IOrderService orderService,
+    IPositionService positionService) : ITradeService
+{
+    private static readonly TimeSpan LockLease = TimeSpan.FromSeconds(30);
+
+    public decimal GetPosition(Guid accountId, string assetSymbol) =>
+        positionService.GetQuantity(accountId, assetSymbol);
+
+    public ComponentOperationResult ReceiveMoney(
+        TriggerContext context,
+        AllocationMoneyRequest request,
+        string rawPayloadJson)
+    {
+        _ = request;
+        return ComponentOperationResult.Success(
+            resultJson: """{"status":"trading-received"}""",
+            nextTriggers:
+            [
+                new NextTriggerSpec
+                {
+                    TriggerCode = TriggerCodes.TradingDistributeMoney,
+                    QueueName = QueueNames.Trading,
+                    TargetComponent = "Trading",
+                    PayloadJson = rawPayloadJson,
+                    IdempotencyKey = $"{context.IdempotencyKey}:7002"
+                }
+            ]);
+    }
+
+    public ComponentOperationResult DistributeMoney(
+        TriggerContext context,
+        AllocationMoneyRequest request,
+        string rawPayloadJson)
+    {
+        _ = request;
+        return ComponentOperationResult.Success(
+            resultJson: """{"status":"trading-distributed"}""",
+            nextTriggers:
+            [
+                new NextTriggerSpec
+                {
+                    TriggerCode = TriggerCodes.InvestmentReceiveMoney,
+                    QueueName = QueueNames.Investment,
+                    TargetComponent = "Investment",
+                    PayloadJson = rawPayloadJson,
+                    IdempotencyKey = $"{context.IdempotencyKey}:8001"
+                }
+            ]);
+    }
+
+    public ComponentOperationResult Buy(TriggerContext context, TradeAssetRequest request)
+    {
+        Validate(request);
+
+        var accountId = context.ExternalId
+            ?? throw new InvalidOperationException("Buy requires ExternalId (Account).");
+
+        var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
+        var reserveKey = $"{context.IdempotencyKey}:reserve";
+        var orderKey = $"{context.IdempotencyKey}:order";
+        var positionKey = $"{context.IdempotencyKey}:position";
+        var ledgerKey = $"{context.IdempotencyKey}:ledger";
+
+        var lockResult = cashService.TryAcquireLock(
+            accountId,
+            request.Currency,
+            context.TriggerId,
+            allocationId,
+            LockLease);
+
+        if (!lockResult.IsHeld)
+        {
+            return ComponentOperationResult.Retry("Cash balance is locked by another trigger.");
+        }
+
+        var reserved = false;
+        try
+        {
+            var reserve = cashService.TryReserve(
+                reserveKey,
+                accountId,
+                request.Currency,
+                request.CashAmount,
+                context.TriggerId,
+                allocationId);
+
+            if (!reserve.Succeeded)
+            {
+                return ComponentOperationResult.Failure(reserve.Error ?? "Unable to reserve cash for buy.");
+            }
+
+            reserved = true;
+
+            var order = orderService.TrySubmit(
+                orderKey,
+                accountId,
+                context.TriggerId,
+                allocationId,
+                request.AssetSymbol,
+                OrderSide.Buy,
+                request.Quantity,
+                limitPrice: null);
+
+            if (!order.Succeeded)
+            {
+                cashService.TryReleaseReservation(reserveKey, context.TriggerId);
+                return ComponentOperationResult.Failure(order.Error ?? "Order submit failed.");
+            }
+
+            positionService.TryApplyBuy(positionKey, accountId, request.AssetSymbol, request.Quantity);
+
+            var consume = cashService.TryConsumeReservation(reserveKey, context.TriggerId);
+            if (!consume.Succeeded && !consume.AlreadyApplied)
+            {
+                return ComponentOperationResult.Failure(consume.Error ?? "Failed to consume cash reservation.");
+            }
+
+            reserved = false;
+
+            var ledger = ledgerService.TryPost(
+                ledgerKey,
+                accountId,
+                request.Currency,
+                request.CashAmount,
+                LedgerEntryType.Debit,
+                $"Buy {request.Quantity} {request.AssetSymbol}",
+                context.TriggerId,
+                allocationId);
+
+            if (!ledger.Succeeded)
+            {
+                return ComponentOperationResult.Failure(ledger.Error ?? "Ledger debit failed.");
+            }
+
+            return ComponentOperationResult.Success(resultJson: """{"status":"bought"}""");
+        }
+        finally
+        {
+            if (reserved)
+            {
+                cashService.TryReleaseReservation(reserveKey, context.TriggerId);
+            }
+
+            cashService.TryReleaseLock(accountId, request.Currency, context.TriggerId);
+        }
+    }
+
+    public ComponentOperationResult Sell(TriggerContext context, TradeAssetRequest request)
+    {
+        Validate(request);
+
+        var accountId = context.ExternalId
+            ?? throw new InvalidOperationException("Sell requires ExternalId (Account).");
+
+        var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
+        var orderKey = $"{context.IdempotencyKey}:order";
+        var positionKey = $"{context.IdempotencyKey}:position";
+        var creditKey = $"{context.IdempotencyKey}:credit";
+        var ledgerKey = $"{context.IdempotencyKey}:ledger";
+
+        var lockResult = cashService.TryAcquireLock(
+            accountId,
+            request.Currency,
+            context.TriggerId,
+            allocationId,
+            LockLease);
+
+        if (!lockResult.IsHeld)
+        {
+            return ComponentOperationResult.Retry("Cash balance is locked by another trigger.");
+        }
+
+        try
+        {
+            var sell = positionService.TryApplySell(
+                positionKey,
+                accountId,
+                request.AssetSymbol,
+                request.Quantity);
+
+            if (!sell.Succeeded)
+            {
+                return ComponentOperationResult.Failure(sell.Error ?? "Sell failed.");
+            }
+
+            var order = orderService.TrySubmit(
+                orderKey,
+                accountId,
+                context.TriggerId,
+                allocationId,
+                request.AssetSymbol,
+                OrderSide.Sell,
+                request.Quantity,
+                limitPrice: null);
+
+            if (!order.Succeeded)
+            {
+                return ComponentOperationResult.Failure(order.Error ?? "Order submit failed.");
+            }
+
+            var credit = cashService.TryDeposit(
+                creditKey,
+                accountId,
+                request.Currency,
+                request.CashAmount,
+                context.TriggerId);
+
+            if (!credit.Succeeded)
+            {
+                return ComponentOperationResult.Failure(credit.Error ?? "Cash credit failed.");
+            }
+
+            var ledger = ledgerService.TryPost(
+                ledgerKey,
+                accountId,
+                request.Currency,
+                request.CashAmount,
+                LedgerEntryType.Credit,
+                $"Sell {request.Quantity} {request.AssetSymbol}",
+                context.TriggerId,
+                allocationId);
+
+            if (!ledger.Succeeded)
+            {
+                return ComponentOperationResult.Failure(ledger.Error ?? "Ledger credit failed.");
+            }
+
+            return ComponentOperationResult.Success(resultJson: """{"status":"sold"}""");
+        }
+        finally
+        {
+            cashService.TryReleaseLock(accountId, request.Currency, context.TriggerId);
+        }
+    }
+
+    public ComponentOperationResult ReverseBuy(TriggerContext context, TradeAssetRequest request)
+    {
+        Validate(request);
+
+        var accountId = context.ExternalId
+            ?? throw new InvalidOperationException("Reverse buy requires ExternalId (Account).");
+
+        var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
+        var positionKey = $"{context.IdempotencyKey}:reverse-position";
+        var creditKey = $"{context.IdempotencyKey}:reverse-credit";
+        var ledgerKey = $"{context.IdempotencyKey}:reverse-ledger";
+
+        var lockResult = cashService.TryAcquireLock(
+            accountId,
+            request.Currency,
+            context.TriggerId,
+            allocationId,
+            LockLease);
+
+        if (!lockResult.IsHeld)
+        {
+            return ComponentOperationResult.Retry("Cash balance is locked by another trigger.");
+        }
+
+        try
+        {
+            var sell = positionService.TryApplySell(
+                positionKey,
+                accountId,
+                request.AssetSymbol,
+                request.Quantity);
+
+            if (sell.Succeeded)
+            {
+                cashService.TryDeposit(
+                    creditKey,
+                    accountId,
+                    request.Currency,
+                    request.CashAmount,
+                    context.TriggerId);
+
+                ledgerService.TryPost(
+                    ledgerKey,
+                    accountId,
+                    request.Currency,
+                    request.CashAmount,
+                    LedgerEntryType.Credit,
+                    $"Reverse buy {request.Quantity} {request.AssetSymbol}",
+                    context.TriggerId,
+                    allocationId);
+            }
+
+            return ComponentOperationResult.Success(resultJson: """{"status":"buy-reversed"}""");
+        }
+        finally
+        {
+            cashService.TryReleaseLock(accountId, request.Currency, context.TriggerId);
+        }
+    }
+
+    public ComponentOperationResult ReverseSell(TriggerContext context, TradeAssetRequest request)
+    {
+        var result = Buy(context, request);
+        if (result.ResultCode == TriggerResultCode.Success)
+        {
+            return ComponentOperationResult.Success(resultJson: """{"status":"sell-reversed"}""");
+        }
+
+        return result;
+    }
+
+    private static void Validate(TradeAssetRequest request)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.AssetSymbol);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Currency);
+        if (request.Quantity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), "Quantity must be positive.");
+        }
+
+        if (request.CashAmount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(request), "CashAmount must be positive.");
+        }
+    }
+}

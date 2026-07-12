@@ -10,7 +10,7 @@ namespace FinancePlatform.Services.Triggers;
 
 public sealed class TriggerExecutionService(
     ITriggerStore triggerStore,
-    TriggerHandlerRegistry handlerRegistry,
+    TriggerEventProcessorRegistry processorRegistry,
     TriggerRetryService retryService,
     ILogger<TriggerExecutionService> logger)
 {
@@ -22,23 +22,40 @@ public sealed class TriggerExecutionService(
         var context = ToContext(trigger);
         context.EnsureValid();
 
-        if (!handlerRegistry.TryGetHandler(trigger.TriggerCode, out var handler) || handler is null)
+        if (!processorRegistry.TryGetProcessor(trigger.TriggerCode, out var processor) || processor is null)
         {
             await triggerStore.FailAsync(
                 trigger.Id,
-                $"No handler registered for trigger code {trigger.TriggerCode}.",
+                $"No event processor registered for trigger code {trigger.TriggerCode}.",
                 cancellationToken);
             return;
         }
 
+        logger.LogInformation(
+            "EP {EventProcessor} picked up trigger {TriggerId} code={TriggerCode}",
+            processor.Name,
+            trigger.Id,
+            trigger.TriggerCode);
+
+        var raiser = new TriggerRaiseBuffer();
         TriggerHandlerResult result;
         try
         {
-            result = await handler.ExecuteAsync(context, trigger.PayloadJson, cancellationToken);
+            result = await processor.ProcessAsync(
+                context,
+                trigger.TriggerCode,
+                trigger.PayloadJson,
+                raiser,
+                cancellationToken);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Handler failed for trigger {TriggerId} code={TriggerCode}", trigger.Id, trigger.TriggerCode);
+            logger.LogError(
+                ex,
+                "EP {EventProcessor} failed for trigger {TriggerId} code={TriggerCode}",
+                processor.Name,
+                trigger.Id,
+                trigger.TriggerCode);
             await retryService.ScheduleRetryAsync(trigger, ex.Message, cancellationToken);
             return;
         }
@@ -46,26 +63,26 @@ public sealed class TriggerExecutionService(
         switch (result.ResultCode)
         {
             case TriggerResultCode.Success:
-                await CompleteWithChildrenAsync(trigger, result, cancellationToken);
+                await CompleteWithChildrenAsync(trigger, processor.Name, result, raiser.Raised, cancellationToken);
                 break;
 
             case TriggerResultCode.Retry:
                 await retryService.ScheduleRetryAsync(
                     trigger,
-                    result.Message ?? "Handler requested retry.",
+                    result.Message ?? "Event processor requested retry.",
                     cancellationToken);
                 break;
 
             case TriggerResultCode.Failure:
-                await FailWithCompensationAsync(trigger, result, cancellationToken);
+                await FailWithCompensationAsync(trigger, result, raiser.Raised, cancellationToken);
                 break;
 
             case TriggerResultCode.Compensation:
                 await triggerStore.MarkCompensationAsync(
                     trigger.Id,
-                    result.Message ?? "Handler requested compensation.",
+                    result.Message ?? "Event processor requested compensation.",
                     cancellationToken);
-                await EnqueueChildrenAsync(trigger, result.NextTriggers, cancellationToken);
+                await EnqueueChildrenAsync(trigger, MergeRaised(result, raiser.Raised), cancellationToken);
                 break;
 
             default:
@@ -79,34 +96,43 @@ public sealed class TriggerExecutionService(
 
     private async Task CompleteWithChildrenAsync(
         SystemEventTrigger trigger,
+        string eventProcessorName,
         TriggerHandlerResult result,
+        IReadOnlyList<NextTriggerRequest> raised,
         CancellationToken cancellationToken)
     {
         await triggerStore.CompleteAsync(trigger.Id, result.ResultJson, cancellationToken);
-        await EnqueueChildrenAsync(trigger, result.NextTriggers, cancellationToken);
+
+        var children = MergeRaised(result, raised);
+        await EnqueueChildrenAsync(trigger, children, cancellationToken);
 
         logger.LogInformation(
-            "Completed trigger {TriggerId} code={TriggerCode}; enqueued {ChildCount} child trigger(s)",
+            "Trigger completed: EP={EventProcessor} TriggerId={TriggerId} Code={TriggerCode} Children={ChildCount}",
+            eventProcessorName,
             trigger.Id,
             trigger.TriggerCode,
-            result.NextTriggers.Count);
+            children.Count);
+
+        Console.WriteLine(
+            $"[Trigger completed] EP={eventProcessorName} Id={trigger.Id} Code={trigger.TriggerCode} Children={children.Count}");
     }
 
     private async Task FailWithCompensationAsync(
         SystemEventTrigger trigger,
         TriggerHandlerResult result,
+        IReadOnlyList<NextTriggerRequest> raised,
         CancellationToken cancellationToken)
     {
-        await triggerStore.FailAsync(trigger.Id, result.Message ?? "Handler failed.", cancellationToken);
+        await triggerStore.FailAsync(trigger.Id, result.Message ?? "Event processor failed.", cancellationToken);
 
-        var compensationTriggers = result.NextTriggers.Count > 0
-            ? result.NextTriggers
+        var compensationTriggers = raised.Count > 0 || result.NextTriggers.Count > 0
+            ? MergeRaised(result, raised)
             : CreateDefaultCompensation(trigger);
 
         await EnqueueChildrenAsync(trigger, compensationTriggers, cancellationToken);
 
         logger.LogWarning(
-            "Failed trigger {TriggerId} code={TriggerCode}; enqueued {ChildCount} compensation trigger(s)",
+            "Trigger failed: TriggerId={TriggerId} Code={TriggerCode}; enqueued {ChildCount} compensation trigger(s)",
             trigger.Id,
             trigger.TriggerCode,
             compensationTriggers.Count);
@@ -138,6 +164,23 @@ public sealed class TriggerExecutionService(
         }
     }
 
+    private static IReadOnlyList<NextTriggerRequest> MergeRaised(
+        TriggerHandlerResult result,
+        IReadOnlyList<NextTriggerRequest> raised)
+    {
+        if (raised.Count == 0)
+        {
+            return result.NextTriggers;
+        }
+
+        if (result.NextTriggers.Count == 0)
+        {
+            return raised;
+        }
+
+        return raised.Concat(result.NextTriggers).ToArray();
+    }
+
     private static IReadOnlyList<NextTriggerRequest> CreateDefaultCompensation(SystemEventTrigger trigger)
     {
         if (TriggerCodes.IsCompensation(trigger.TriggerCode))
@@ -150,7 +193,7 @@ public sealed class TriggerExecutionService(
             new NextTriggerRequest
             {
                 TriggerCode = TriggerCodes.Compensate(trigger.TriggerCode),
-                QueueName = "Reversal",
+                QueueName = QueueNames.Reversal,
                 TargetComponent = trigger.TargetComponent,
                 PayloadJson = trigger.PayloadJson,
                 IdempotencyKey = $"{trigger.IdempotencyKey}:compensate"

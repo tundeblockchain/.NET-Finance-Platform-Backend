@@ -1,9 +1,15 @@
 using FinancePlatform.Data.Triggers;
+using FinancePlatform.Services.Allocation;
+using FinancePlatform.Services.Asset;
 using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Ledger;
-using FinancePlatform.Services.Trading;
+using FinancePlatform.Services.Orders;
+using FinancePlatform.Services.Positions;
+using FinancePlatform.Services.Trade;
 using FinancePlatform.Services.Triggers;
-using FinancePlatform.Worker.Handlers;
+using FinancePlatform.Worker.EventProcessors;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
@@ -11,24 +17,35 @@ namespace FinancePlatform.UnitTests.Triggers.Support;
 
 internal sealed record TriggerExecutionTestHarness(
     InMemoryTriggerStore Store,
-    TriggerHandlerRegistry Registry,
+    TriggerEventProcessorRegistry Registry,
     InMemoryCashService Cash,
-    InMemoryTradingService Trading,
+    ITradeService Trading,
+    IPositionService Positions,
+    IOrderService Orders,
     TriggerExecutionService Execution)
 {
-    public static TriggerExecutionTestHarness Create(bool registerDeposit = true)
+    public static TriggerExecutionTestHarness Create(bool registerDefaults = true)
     {
         var store = new InMemoryTriggerStore();
-        var registry = new TriggerHandlerRegistry();
+        var registry = new TriggerEventProcessorRegistry();
         var cash = new InMemoryCashService();
         var ledger = new InMemoryLedgerService();
-        var trading = new InMemoryTradingService();
+        var positions = new InMemoryPositionService();
+        var orders = new InMemoryOrderService();
+        var allocation = new AllocationService();
+        var trade = new TradeService(cash, ledger, orders, positions);
+        var customer = new CustomerService(cash, ledger, allocation);
+        var investment = new InvestmentService();
+        var asset = new AssetService(trade, allocation);
+        var cashComponent = new CashComponentService(cash, ledger);
 
-        if (registerDeposit)
+        if (registerDefaults)
         {
-            registry.RegisterHandler(new DepositCashHandler(cash, ledger));
-            registry.RegisterHandler(new BuyAssetHandler(trading));
-            registry.RegisterHandler(new ReverseBuyAssetHandler());
+            registry.Register(new CashEP(cashComponent));
+            registry.Register(new CustomerEP(customer));
+            registry.Register(new TradeEP(trade));
+            registry.Register(new InvestmentEP(investment));
+            registry.Register(new AssetEP(asset));
         }
 
         var retryOptions = Options.Create(new TriggerRetryOptions
@@ -50,6 +67,6 @@ internal sealed record TriggerExecutionTestHarness(
             retry,
             NullLogger<TriggerExecutionService>.Instance);
 
-        return new TriggerExecutionTestHarness(store, registry, cash, trading, execution);
+        return new TriggerExecutionTestHarness(store, registry, cash, trade, positions, orders, execution);
     }
 }
