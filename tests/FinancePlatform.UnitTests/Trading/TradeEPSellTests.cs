@@ -4,6 +4,7 @@ using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
@@ -23,7 +24,7 @@ public class TradeEPSellTests
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions);
+        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
         var ep = new TradeEP(trade);
         var accountId = Guid.NewGuid();
         var seedTrigger = Guid.NewGuid();

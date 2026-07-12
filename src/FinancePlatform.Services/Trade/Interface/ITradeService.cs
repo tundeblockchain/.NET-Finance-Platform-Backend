@@ -7,7 +7,11 @@ namespace FinancePlatform.Services.Trade;
 
 public interface ITradeService
 {
-    ComponentOperationResult ReceiveMoney(TriggerContext context, AllocationMoneyRequest request, string rawPayloadJson);
+    /// <summary>
+    /// Parks funds into the trading account. When <see cref="TradingReceiveMoneyRequest.ParkOnly"/> is true,
+    /// no further distribute trigger is raised (invest is a separate trading-UI action).
+    /// </summary>
+    ComponentOperationResult ReceiveMoney(TriggerContext context, TradingReceiveMoneyRequest request);
 
     ComponentOperationResult DistributeMoney(TriggerContext context, AllocationMoneyRequest request, string rawPayloadJson);
 

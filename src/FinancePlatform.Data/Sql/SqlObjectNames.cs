@@ -16,7 +16,13 @@ public static class SqlObjectNames
         "CashReservation",
         "Position",
         "Order",
-        "LedgerEntry"
+        "LedgerEntry",
+        "Customer",
+        "CustomerAddress",
+        "CustomerAccount",
+        "TradingAccount",
+        "DistributionAgreement",
+        "DistributionElement"
     ];
 
     public static readonly IReadOnlyList<string> NonArchivedModels =

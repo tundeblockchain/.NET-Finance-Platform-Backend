@@ -1,8 +1,5 @@
 using FinancePlatform.Data.Triggers;
 using FinancePlatform.Models.Entities;
-using FinancePlatform.Models.Enums;
-using FinancePlatform.Models.Triggers;
-using FinancePlatform.Services.Triggers;
 
 namespace FinancePlatform.Services.Workflows;
 
@@ -14,5 +11,14 @@ public interface IWorkflowEnqueueService
 
     Task<SystemEventTrigger> EnqueueSellAsync(SellWorkflowCommand command, CancellationToken cancellationToken = default);
 
+    Task<SystemEventTrigger> EnqueueCustomerDepositAsync(
+        CustomerDepositWorkflowCommand command,
+        CancellationToken cancellationToken = default);
+
+    Task<SystemEventTrigger> EnqueueCustomerDistributeAsync(
+        CustomerDistributeWorkflowCommand command,
+        CancellationToken cancellationToken = default);
+
+    [Obsolete("Use EnqueueCustomerDistributeAsync for park-only Customer → Trading.")]
     Task<SystemEventTrigger> EnqueueAllocationAsync(AllocationWorkflowCommand command, CancellationToken cancellationToken = default);
 }

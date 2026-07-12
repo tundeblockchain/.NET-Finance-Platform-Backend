@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FinancePlatform.Models.Allocation;
 using FinancePlatform.Models.Components;
 using FinancePlatform.Models.Dtos;
@@ -5,6 +6,7 @@ using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
@@ -12,25 +14,51 @@ using FinancePlatform.Services.Positions;
 namespace FinancePlatform.Services.Trade;
 
 /// <summary>
-/// Main trading component service. Uses cash, orders, positions, and ledger as supporting services.
+/// Main trading component service. Uses cash, orders, positions, ledger, and customer directory.
 /// </summary>
 public sealed class TradeService(
     ICashService cashService,
     ILedgerService ledgerService,
     IOrderService orderService,
-    IPositionService positionService) : ITradeService
+    IPositionService positionService,
+    ICustomerDirectory customerDirectory) : ITradeService
 {
     private static readonly TimeSpan LockLease = TimeSpan.FromSeconds(30);
 
     public decimal GetPosition(Guid accountId, string assetSymbol) =>
         positionService.GetQuantity(accountId, assetSymbol);
 
-    public ComponentOperationResult ReceiveMoney(
-        TriggerContext context,
-        AllocationMoneyRequest request,
-        string rawPayloadJson)
+    public ComponentOperationResult ReceiveMoney(TriggerContext context, TradingReceiveMoneyRequest request)
     {
-        _ = request;
+        if (request.Amount <= 0)
+        {
+            return ComponentOperationResult.Failure("Receive amount must be positive.");
+        }
+
+        var tradingAccount = customerDirectory.FindTradingAccount(request.TradingAccountId);
+        if (tradingAccount is null || tradingAccount.CustomerId != request.CustomerId)
+        {
+            return ComponentOperationResult.Failure("Trading account was not found.");
+        }
+
+        var credited = customerDirectory.TryCreditTradingAccount(
+            tradingAccount.Id,
+            request.Amount,
+            context.TriggerId,
+            $"{context.IdempotencyKey}:trading-credit");
+
+        if (!credited)
+        {
+            return ComponentOperationResult.Failure("Unable to credit trading account.");
+        }
+
+        // Point A: park-only — Trading UI will later create an investment instruction and distribute.
+        if (request.ParkOnly)
+        {
+            return ComponentOperationResult.Success(
+                resultJson: $$"""{"status":"trading-parked","tradingAccountId":"{{tradingAccount.Id}}","amount":{{request.Amount}}}""");
+        }
+
         return ComponentOperationResult.Success(
             resultJson: """{"status":"trading-received"}""",
             nextTriggers:
@@ -40,7 +68,7 @@ public sealed class TradeService(
                     TriggerCode = TriggerCodes.TradingDistributeMoney,
                     QueueName = QueueNames.Trading,
                     TargetComponent = "Trading",
-                    PayloadJson = rawPayloadJson,
+                    PayloadJson = JsonSerializer.Serialize(request),
                     IdempotencyKey = $"{context.IdempotencyKey}:7002"
                 }
             ]);

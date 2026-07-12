@@ -17,8 +17,11 @@ public static class TriggerCodes
     public const int AssetTradingMin = 9000;
     public const int AssetTradingMax = 9999;
 
-    // Sample workflow chain (architecture example)
+    // Customer component
+    public const int CustomerDepositMoney = 6001;
     public const int CustomerDistributeMoney = 6002;
+
+    // Trading component
     public const int TradingReceiveMoney = 7001;
     public const int TradingDistributeMoney = 7002;
     public const int InvestmentReceiveMoney = 8001;

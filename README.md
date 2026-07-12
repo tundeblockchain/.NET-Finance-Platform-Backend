@@ -50,18 +50,25 @@ cd backend
 dotnet run --project src/FinancePlatform.Api
 ```
 
-- Root: `GET /`
-- Health: `GET /health`
-- OpenAPI document: `GET /openapi/v1.json`
-- Scalar API docs: `/scalar`
-- Enqueue workflows:
-  - `POST /api/workflows/deposits`
-  - `POST /api/workflows/buys`
-  - `POST /api/workflows/sells`
-  - `POST /api/workflows/allocations` (6002 → … → 9001)
+Ports are set in `src/FinancePlatform.Api/appsettings.json` (`Urls` / `Api:HttpPort` / `Api:HttpsPort`) and mirrored in `Properties/launchSettings.json`.
+
+- API (HTTP): `http://localhost:5152`
+- API (HTTPS): `https://localhost:7245`
+- **Scalar docs:** [http://localhost:5152/scalar](http://localhost:5152/scalar) (or `https://localhost:7245/scalar`)
+- OpenAPI document: `http://localhost:5152/openapi/v1.json`
+- Health: `http://localhost:5152/health`
+
+`dotnet run` can open Scalar automatically (`launchBrowser` + `launchUrl: scalar` in launch settings).
+- Customer APIs:
+  - `POST /api/customers` — create customer + accounts + park agreement
+  - `GET /api/customers/{id}` — customer and account balances
+  - `POST /api/customers/{id}/deposits` — Customer.DepositMoney (6001)
+  - `POST /api/customers/{id}/distribute-to-trading` — Customer.Distribute (6002) → Trading.Receive park (7001)
+  - `GET /api/customers/{id}/trading-account` — parked trading balance
+  - Legacy: `POST /api/workflows/deposits|buys|sells` (1001 / 2002 / 2003)
 
 With `Persistence:Provider=InMemory`, API and Worker do **not** share a store (separate processes).
-Use `SqlServer` for API → Worker end-to-end, or rely on the Worker sample seed / unit tests for local demos.
+Use `SqlServer` for API → Worker end-to-end (customer directory uses SPs via `SqlCustomerDirectory`).
 
 ## Run the Worker (service broker)
 
@@ -82,10 +89,9 @@ Persistence defaults to **InMemory**. To use SQL Server:
 
 ## Current phase
 
-**Phase 6 — Heartbeats, recovery & worker hardening:**
+**Customer money path (park-only) + Phase 6 hardening:**
 
-- Queue heartbeat (throttled logs) + trigger lease refresh while EPs run
-- `TriggerRecoveryService` / `RecoverExpiredTriggers` SP: expired leases → Pending
-- Config: poll/concurrency/retry + recovery/heartbeat intervals under `Broker`
-- Correlation / root workflow / trigger id on execution logs via `BeginScope`
-- Heartbeat failure marks worker unhealthy and pauses claims
+- Create customer → CustomerAccount + TradingAccount + distribution element (target type 702)
+- `6001` deposit into CustomerAccount; `6002` distribute → `7001` Trading.Receive **parks only** (no auto-invest)
+- Trading UI (later) invests from the trading account
+- Queue heartbeat + lease recovery (Phase 6) still apply

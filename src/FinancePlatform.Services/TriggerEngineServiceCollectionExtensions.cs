@@ -25,8 +25,9 @@ public static class TriggerEngineServiceCollectionExtensions
     {
         var provider = configuration.GetValue<string>(PersistenceProviderKey) ?? "InMemory";
         var connectionString = configuration.GetConnectionString("FinancePlatform");
+        var useSqlServer = string.Equals(provider, "SqlServer", StringComparison.OrdinalIgnoreCase);
 
-        if (string.Equals(provider, "SqlServer", StringComparison.OrdinalIgnoreCase))
+        if (useSqlServer)
         {
             if (string.IsNullOrWhiteSpace(connectionString))
             {
@@ -41,19 +42,19 @@ public static class TriggerEngineServiceCollectionExtensions
             services.AddInMemoryPersistence();
         }
 
-        return AddTriggerEngineCore(services);
+        return AddTriggerEngineCore(services, useSqlServer);
     }
 
     /// <summary>
-    /// Always uses the in-memory trigger store.
+    /// Always uses the in-memory trigger store and customer directory.
     /// </summary>
     public static IServiceCollection AddInMemoryTriggerEngine(this IServiceCollection services)
     {
         services.AddInMemoryPersistence();
-        return AddTriggerEngineCore(services);
+        return AddTriggerEngineCore(services, useSqlServer: false);
     }
 
-    private static IServiceCollection AddTriggerEngineCore(IServiceCollection services)
+    private static IServiceCollection AddTriggerEngineCore(IServiceCollection services, bool useSqlServer)
     {
         // Supporting / primitive services
         services.AddSingleton<ICashService, InMemoryCashService>();
@@ -62,6 +63,15 @@ public static class TriggerEngineServiceCollectionExtensions
         services.AddSingleton<IOrderService, InMemoryOrderService>();
 
         // Main component services (EP → Service → Models)
+        if (useSqlServer)
+        {
+            services.AddSingleton<ICustomerDirectory, SqlCustomerDirectory>();
+        }
+        else
+        {
+            services.AddSingleton<ICustomerDirectory, InMemoryCustomerDirectory>();
+        }
+
         services.AddSingleton<IAllocationService, AllocationService>();
         services.AddSingleton<ICashComponentService, CashComponentService>();
         services.AddSingleton<ICustomerService, CustomerService>();

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FinancePlatform.Data.Triggers;
+using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Entities;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
@@ -95,19 +96,48 @@ public sealed class WorkflowEnqueueService(TriggerClaimService claimService) : I
         }, cancellationToken);
     }
 
-    public Task<SystemEventTrigger> EnqueueAllocationAsync(
-        AllocationWorkflowCommand command,
+    public Task<SystemEventTrigger> EnqueueCustomerDepositAsync(
+        CustomerDepositWorkflowCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        var rootId = command.RootWorkflowId ?? Guid.NewGuid();
+        var payload = JsonSerializer.Serialize(new CustomerDepositRequest
+        {
+            CustomerId = command.CustomerId,
+            CustomerAccountId = command.CustomerAccountId,
+            Amount = command.Amount,
+            Currency = command.Currency
+        });
+
+        return claimService.EnqueueAsync(new EnqueueTriggerCommand
+        {
+            TriggerCode = TriggerCodes.CustomerDepositMoney,
+            QueueName = QueueNames.Customer,
+            PayloadJson = payload,
+            RootWorkflowId = rootId,
+            CorrelationId = rootId,
+            ExternalId = command.CustomerAccountId,
+            ExternalType = ExternalEntityType.CustomerAccount,
+            SourceComponent = "Api",
+            TargetComponent = "Customer",
+            IdempotencyKey = command.IdempotencyKey
+        }, cancellationToken);
+    }
+
+    public Task<SystemEventTrigger> EnqueueCustomerDistributeAsync(
+        CustomerDistributeWorkflowCommand command,
         CancellationToken cancellationToken = default)
     {
         var rootId = command.RootWorkflowId ?? Guid.NewGuid();
         var allocationId = command.AllocationRequestId ?? rootId;
-        var payload = JsonSerializer.Serialize(new
+        var payload = JsonSerializer.Serialize(new DistributeMoneyRequest
         {
+            CustomerId = command.CustomerId,
+            CustomerAccountId = command.CustomerAccountId,
+            TradingAccountId = command.TradingAccountId,
             Amount = command.Amount,
             CashAmount = command.Amount,
-            command.Currency,
-            command.AssetSymbol,
-            command.Quantity
+            Currency = command.Currency
         });
 
         return claimService.EnqueueAsync(new EnqueueTriggerCommand
@@ -118,11 +148,28 @@ public sealed class WorkflowEnqueueService(TriggerClaimService claimService) : I
             RootWorkflowId = rootId,
             CorrelationId = rootId,
             AllocationRequestId = allocationId,
-            ExternalId = command.AccountId,
-            ExternalType = ExternalEntityType.Account,
+            ExternalId = command.CustomerAccountId,
+            ExternalType = ExternalEntityType.CustomerAccount,
             SourceComponent = "Api",
             TargetComponent = "Customer",
             IdempotencyKey = command.IdempotencyKey
+        }, cancellationToken);
+    }
+
+    [Obsolete("Use EnqueueCustomerDistributeAsync for park-only Customer → Trading.")]
+    public Task<SystemEventTrigger> EnqueueAllocationAsync(
+        AllocationWorkflowCommand command,
+        CancellationToken cancellationToken = default)
+    {
+        return EnqueueCustomerDistributeAsync(new CustomerDistributeWorkflowCommand
+        {
+            CustomerId = 0,
+            CustomerAccountId = command.AccountId,
+            Amount = command.Amount,
+            Currency = command.Currency,
+            IdempotencyKey = command.IdempotencyKey,
+            RootWorkflowId = command.RootWorkflowId,
+            AllocationRequestId = command.AllocationRequestId
         }, cancellationToken);
     }
 }

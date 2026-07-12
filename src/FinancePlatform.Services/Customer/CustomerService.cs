@@ -1,108 +1,156 @@
+using System.Text.Json;
 using FinancePlatform.Models.Components;
 using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
+using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
-using FinancePlatform.Services.Allocation;
-using FinancePlatform.Services.Cash;
-using FinancePlatform.Services.Ledger;
 
 namespace FinancePlatform.Services.Customer;
 
 /// <summary>
-/// Main customer component service. Uses cash, ledger, and allocation as supporting services.
+/// Main customer component service: provision customers, deposit to customer account,
+/// distribute (park) to trading account per distribution agreement.
 /// </summary>
-public sealed class CustomerService(
-    ICashService cashService,
-    ILedgerService ledgerService,
-    IAllocationService allocationService) : ICustomerService
+public sealed class CustomerService(ICustomerDirectory directory) : ICustomerService
 {
-    private static readonly TimeSpan LockLease = TimeSpan.FromSeconds(30);
+    public CustomerProvisioningResult CreateCustomer(CreateCustomerRequest request) =>
+        directory.CreateCustomer(request);
+
+    public CustomerProvisioningResult? GetCustomer(int customerId, string? currency = null)
+    {
+        var customer = directory.FindCustomer(customerId);
+        if (customer is null)
+        {
+            return null;
+        }
+
+        var ccy = string.IsNullOrWhiteSpace(currency) ? "GBP" : currency.ToUpperInvariant();
+        var customerAccount = directory.FindCustomerAccountByCustomer(customerId, ccy)
+            ?? throw new InvalidOperationException($"Customer {customerId} has no customer account for {ccy}.");
+        var tradingAccount = directory.FindTradingAccountByCustomer(customerId, ccy)
+            ?? throw new InvalidOperationException($"Customer {customerId} has no trading account for {ccy}.");
+        var agreement = directory.FindAgreementByOwnerAccount(customerAccount.Id)
+            ?? throw new InvalidOperationException($"Customer {customerId} has no distribution agreement.");
+
+        return new CustomerProvisioningResult
+        {
+            Customer = customer,
+            Address = directory.FindAddress(customerId),
+            CustomerAccount = customerAccount,
+            TradingAccount = tradingAccount,
+            DistributionAgreement = agreement
+        };
+    }
+
+    public ComponentOperationResult DepositMoney(TriggerContext context, CustomerDepositRequest request)
+    {
+        if (request.Amount <= 0)
+        {
+            return ComponentOperationResult.Failure("Deposit amount must be positive.");
+        }
+
+        var account = directory.FindCustomerAccount(request.CustomerAccountId);
+        if (account is null || account.CustomerId != request.CustomerId)
+        {
+            return ComponentOperationResult.Failure("Customer account was not found.");
+        }
+
+        if (!string.Equals(account.Currency, request.Currency, StringComparison.OrdinalIgnoreCase))
+        {
+            return ComponentOperationResult.Failure("Currency mismatch for customer account.");
+        }
+
+        var credited = directory.TryCreditCustomerAccount(
+            account.Id,
+            request.Amount,
+            context.TriggerId,
+            $"{context.IdempotencyKey}:customer-deposit");
+
+        if (!credited)
+        {
+            return ComponentOperationResult.Failure("Unable to credit customer account.");
+        }
+
+        return ComponentOperationResult.Success(
+            resultJson: $$"""{"status":"customer-deposited","customerAccountId":"{{account.Id}}","amount":{{request.Amount}}}""");
+    }
 
     public ComponentOperationResult DistributeMoney(
         TriggerContext context,
         DistributeMoneyRequest request,
         string rawPayloadJson)
     {
-        var amount = request.EffectiveCashAmount;
+        _ = rawPayloadJson;
+        var amount = request.EffectiveAmount;
         if (amount <= 0)
         {
-            return ComponentOperationResult.Failure("Allocation requires a positive amount.");
+            return ComponentOperationResult.Failure("Distribute amount must be positive.");
         }
 
-        var accountId = context.ExternalId
-            ?? throw new InvalidOperationException("Allocation requires ExternalId (Account).");
+        var customerAccount = directory.FindCustomerAccount(request.CustomerAccountId);
+        if (customerAccount is null || customerAccount.CustomerId != request.CustomerId)
+        {
+            return ComponentOperationResult.Failure("Customer account was not found.");
+        }
 
-        var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
-        allocationService.EnsureStarted(
-            allocationId,
-            accountId,
-            customerId: null,
+        var elements = directory.GetActiveElements(customerAccount.Id);
+        var tradingElement = elements.FirstOrDefault(e =>
+            e.TargetType == DistributionTargetType.TradingAccount);
+        if (tradingElement is null)
+        {
+            return ComponentOperationResult.Failure(
+                "No active distribution element to TradingAccount (702) for this customer account.");
+        }
+
+        var tradingAccountId = request.TradingAccountId == Guid.Empty
+            ? tradingElement.TargetAccountId
+            : request.TradingAccountId;
+
+        if (tradingAccountId != tradingElement.TargetAccountId)
+        {
+            return ComponentOperationResult.Failure("Trading account does not match distribution agreement.");
+        }
+
+        var tradingAccount = directory.FindTradingAccount(tradingAccountId);
+        if (tradingAccount is null || tradingAccount.CustomerId != request.CustomerId)
+        {
+            return ComponentOperationResult.Failure("Trading account was not found.");
+        }
+
+        var debited = directory.TryDebitCustomerAccount(
+            customerAccount.Id,
             amount,
-            request.Currency,
-            context.RootWorkflowId,
-            context.IdempotencyKey);
-
-        var lockResult = cashService.TryAcquireLock(
-            accountId,
-            request.Currency,
             context.TriggerId,
-            allocationId,
-            LockLease);
+            $"{context.IdempotencyKey}:customer-debit");
 
-        if (!lockResult.IsHeld)
+        if (!debited)
         {
-            return ComponentOperationResult.Retry("Cash balance is locked by another trigger.");
+            return ComponentOperationResult.Failure("Insufficient funds in customer account.");
         }
 
-        try
+        var receivePayload = JsonSerializer.Serialize(new TradingReceiveMoneyRequest
         {
-            var deposit = cashService.TryDeposit(
-                $"{context.IdempotencyKey}:deposit",
-                accountId,
-                request.Currency,
-                amount,
-                context.TriggerId);
+            CustomerId = request.CustomerId,
+            TradingAccountId = tradingAccountId,
+            SourceCustomerAccountId = customerAccount.Id,
+            Amount = amount,
+            Currency = request.Currency,
+            ParkOnly = true
+        });
 
-            if (!deposit.Succeeded)
-            {
-                return ComponentOperationResult.Failure(deposit.Error ?? "Customer deposit failed.");
-            }
-
-            var ledger = ledgerService.TryPost(
-                $"{context.IdempotencyKey}:ledger",
-                accountId,
-                request.Currency,
-                amount,
-                LedgerEntryType.Credit,
-                "Customer distribute money",
-                context.TriggerId,
-                allocationId);
-
-            if (!ledger.Succeeded)
-            {
-                return ComponentOperationResult.Failure(ledger.Error ?? "Ledger posting failed.");
-            }
-
-            allocationService.MarkProcessing(allocationId);
-
-            return ComponentOperationResult.Success(
-                resultJson: """{"status":"customer-distributed"}""",
-                nextTriggers:
-                [
-                    new NextTriggerSpec
-                    {
-                        TriggerCode = TriggerCodes.TradingReceiveMoney,
-                        QueueName = QueueNames.Trading,
-                        TargetComponent = "Trading",
-                        PayloadJson = rawPayloadJson,
-                        IdempotencyKey = $"{context.IdempotencyKey}:7001"
-                    }
-                ]);
-        }
-        finally
-        {
-            cashService.TryReleaseLock(accountId, request.Currency, context.TriggerId);
-        }
+        return ComponentOperationResult.Success(
+            resultJson: """{"status":"customer-distributed","parkOnly":true}""",
+            nextTriggers:
+            [
+                new NextTriggerSpec
+                {
+                    TriggerCode = TriggerCodes.TradingReceiveMoney,
+                    QueueName = QueueNames.Trading,
+                    TargetComponent = "Trading",
+                    PayloadJson = receivePayload,
+                    IdempotencyKey = $"{context.IdempotencyKey}:7001"
+                }
+            ]);
     }
 }

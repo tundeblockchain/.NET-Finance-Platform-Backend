@@ -6,6 +6,12 @@ namespace FinancePlatform.Services.Customer;
 
 public interface ICustomerService
 {
+    CustomerProvisioningResult CreateCustomer(CreateCustomerRequest request);
+
+    CustomerProvisioningResult? GetCustomer(int customerId, string? currency = null);
+
+    ComponentOperationResult DepositMoney(TriggerContext context, CustomerDepositRequest request);
+
     ComponentOperationResult DistributeMoney(
         TriggerContext context,
         DistributeMoneyRequest request,

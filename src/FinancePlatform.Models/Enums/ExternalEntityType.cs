@@ -7,5 +7,7 @@ public enum ExternalEntityType
 {
     Customer = 1,
     Account = 2,
-    Transfer = 3
+    Transfer = 3,
+    CustomerAccount = 4,
+    TradingAccount = 5
 }

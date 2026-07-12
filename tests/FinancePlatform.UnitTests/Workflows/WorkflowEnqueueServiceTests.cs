@@ -10,12 +10,13 @@ namespace FinancePlatform.UnitTests.Workflows;
 public class WorkflowEnqueueServiceTests
 {
     [Fact]
-    public async Task Enqueue_deposit_buy_sell_and_allocation_create_expected_root_triggers()
+    public async Task Enqueue_legacy_and_customer_workflows_create_expected_root_triggers()
     {
         var store = new InMemoryTriggerStore();
         var claim = new TriggerClaimService(store, NullLogger<TriggerClaimService>.Instance);
         var service = new WorkflowEnqueueService(claim);
         var accountId = Guid.NewGuid();
+        var customerAccountId = Guid.NewGuid();
 
         var deposit = await service.EnqueueDepositAsync(new DepositWorkflowCommand
         {
@@ -42,12 +43,21 @@ public class WorkflowEnqueueServiceTests
             IdempotencyKey = "api-sell-1"
         });
 
-        var allocation = await service.EnqueueAllocationAsync(new AllocationWorkflowCommand
+        var customerDeposit = await service.EnqueueCustomerDepositAsync(new CustomerDepositWorkflowCommand
         {
-            AccountId = accountId,
+            CustomerId = 1,
+            CustomerAccountId = customerAccountId,
+            Amount = 250m,
+            IdempotencyKey = "api-cust-dep-1"
+        });
+
+        var customerDistribute = await service.EnqueueCustomerDistributeAsync(new CustomerDistributeWorkflowCommand
+        {
+            CustomerId = 1,
+            CustomerAccountId = customerAccountId,
+            TradingAccountId = Guid.NewGuid(),
             Amount = 200m,
-            Quantity = 2m,
-            IdempotencyKey = "api-alloc-1"
+            IdempotencyKey = "api-cust-dist-1"
         });
 
         deposit.TriggerCode.Should().Be(TriggerCodes.DepositCash);
@@ -59,9 +69,12 @@ public class WorkflowEnqueueServiceTests
         sell.TriggerCode.Should().Be(TriggerCodes.SellAsset);
         sell.QueueName.Should().Be(QueueNames.Trading);
 
-        allocation.TriggerCode.Should().Be(TriggerCodes.CustomerDistributeMoney);
-        allocation.QueueName.Should().Be(QueueNames.Customer);
+        customerDeposit.TriggerCode.Should().Be(TriggerCodes.CustomerDepositMoney);
+        customerDeposit.QueueName.Should().Be(QueueNames.Customer);
 
-        store.GetAll().Should().HaveCount(4);
+        customerDistribute.TriggerCode.Should().Be(TriggerCodes.CustomerDistributeMoney);
+        customerDistribute.QueueName.Should().Be(QueueNames.Customer);
+
+        store.GetAll().Should().HaveCount(5);
     }
 }

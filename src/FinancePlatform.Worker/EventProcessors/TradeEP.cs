@@ -38,7 +38,7 @@ public sealed class TradeEP(ITradeService tradeService) : ITriggerEventProcessor
         return Task.FromResult((absolute, isAction) switch
         {
             (TriggerCodes.TradingReceiveMoney, true) => EpResult.From(
-                tradeService.ReceiveMoney(context, RequireAllocation(payloadJson), payloadJson), raiser),
+                tradeService.ReceiveMoney(context, RequireTradingReceive(payloadJson)), raiser),
             (TriggerCodes.TradingDistributeMoney, true) => EpResult.From(
                 tradeService.DistributeMoney(context, RequireAllocation(payloadJson), payloadJson), raiser),
             (TriggerCodes.BuyAsset, true) => EpResult.From(
@@ -52,6 +52,10 @@ public sealed class TradeEP(ITradeService tradeService) : ITriggerEventProcessor
             _ => TriggerHandlerResult.Failure($"TradeEP does not handle trigger code {triggerCode}.")
         });
     }
+
+    private static TradingReceiveMoneyRequest RequireTradingReceive(string payloadJson) =>
+        JsonSerializer.Deserialize<TradingReceiveMoneyRequest>(payloadJson)
+        ?? throw new InvalidOperationException("Trading receive payload is required.");
 
     private static AllocationMoneyRequest RequireAllocation(string payloadJson) =>
         JsonSerializer.Deserialize<AllocationMoneyRequest>(payloadJson)

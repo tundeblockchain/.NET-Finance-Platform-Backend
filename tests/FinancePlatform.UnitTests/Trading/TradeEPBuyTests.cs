@@ -8,6 +8,7 @@ using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
+using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Trade;
 using FinancePlatform.Services.Triggers;
 using FinancePlatform.Worker.EventProcessors;
@@ -54,7 +55,7 @@ public class TradeEPBuyTests
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions);
+        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
         var ep = new TradeEP(trade);
         var accountId = Guid.NewGuid();
         var seedTrigger = Guid.NewGuid();
@@ -89,7 +90,7 @@ public class TradeEPBuyTests
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions);
+        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
         return (cash, positions, new TradeEP(trade));
     }
 

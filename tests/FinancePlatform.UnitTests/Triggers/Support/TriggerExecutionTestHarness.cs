@@ -19,6 +19,8 @@ internal sealed record TriggerExecutionTestHarness(
     InMemoryTriggerStore Store,
     TriggerEventProcessorRegistry Registry,
     InMemoryCashService Cash,
+    ICustomerDirectory Directory,
+    ICustomerService Customer,
     ITradeService Trading,
     IPositionService Positions,
     IOrderService Orders,
@@ -32,9 +34,10 @@ internal sealed record TriggerExecutionTestHarness(
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
+        var directory = new InMemoryCustomerDirectory();
         var allocation = new AllocationService();
-        var trade = new TradeService(cash, ledger, orders, positions);
-        var customer = new CustomerService(cash, ledger, allocation);
+        var trade = new TradeService(cash, ledger, orders, positions, directory);
+        var customer = new CustomerService(directory);
         var investment = new InvestmentService();
         var asset = new AssetService(trade, allocation);
         var cashComponent = new CashComponentService(cash, ledger);
@@ -67,6 +70,7 @@ internal sealed record TriggerExecutionTestHarness(
             retry,
             NullLogger<TriggerExecutionService>.Instance);
 
-        return new TriggerExecutionTestHarness(store, registry, cash, trade, positions, orders, execution);
+        return new TriggerExecutionTestHarness(
+            store, registry, cash, directory, customer, trade, positions, orders, execution);
     }
 }
