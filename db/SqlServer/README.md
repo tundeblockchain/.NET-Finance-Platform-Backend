@@ -48,7 +48,23 @@ SqlServer/
     └── Triggers/
 ```
 
-Investment buy path persistence:
+## Persistence services (SqlServer)
+
+When `Persistence:Provider=SqlServer`, DI uses SQL-backed:
+
+| Service | Implementation |
+|---------|----------------|
+| Cash | `SqlCashService` |
+| Orders | `SqlOrderService` |
+| Positions | `SqlPositionService` |
+| Ledger | `SqlLedgerService` |
+| Allocations | `SqlAllocationService` |
+| Customers / Investment | `SqlCustomerDirectory`, `SqlInvestmentInstructionStore` |
+| Triggers | `SqlTriggerStore` |
+
+Redeploy procedures after pulling (`Procedures/Cash`, `Order`, `Position`, `LedgerEntry`, `InvestmentAccount`, `InvestmentInstruction`, `CustomerOps`).
+
+## Investment objects
 
 | Object | Purpose |
 |--------|---------|
@@ -57,6 +73,7 @@ Investment buy path persistence:
 | `EnsureInvestmentAccount` | Lazy-create investment account for a trading account |
 | `EnsureTradingToInvestmentDistribution` | Agreement + element (target 802) |
 | `CreateInvestmentInstruction` | Idempotent instruction insert |
+
 ## Conventions
 
 | Object | Pattern | Example |

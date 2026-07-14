@@ -1,13 +1,12 @@
 /*
-  Procedure : dbo.SubmitOrder
-  Purpose   : Idempotently creates or updates an Order as Submitted then Filled for the in-process broker path. Archives on update via Order_a when the row already exists.
-  Dated     : 2026-07-12
+  Procedure : dbo.CreateOrder
+  Purpose   : Idempotently creates an Order with Status=Submitted.
+  Dated     : 2026-07-14
 */
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
 GO
-
-CREATE OR ALTER PROCEDURE dbo.SubmitOrder
+CREATE OR ALTER PROCEDURE dbo.CreateOrder
     @IdempotencyKey NVARCHAR(200),
     @AccountId UNIQUEIDENTIFIER,
     @TriggerId UNIQUEIDENTIFIER,
@@ -24,7 +23,7 @@ BEGIN
 
     IF @Quantity <= 0
     BEGIN
-        THROW 50030, 'Order quantity must be positive.', 1;
+        THROW 50050, 'Order quantity must be positive.', 1;
     END
 
     DECLARE @Now DATETIMEOFFSET = SYSUTCDATETIME();
@@ -50,7 +49,7 @@ BEGIN
         Status, IdempotencyKey, CreatedUtc, SubmittedUtc, DateModified, ChangedBy)
     VALUES (
         @Id, @AccountId, @AllocationRequestId, @TriggerId, @AssetSymbol, @Side, @Quantity, @LimitPrice,
-        3, /* Filled */ @IdempotencyKey, @Now, @Now, @Now, @ChangedBy);
+        1, /* Submitted */ @IdempotencyKey, @Now, @Now, @Now, @ChangedBy);
 
     SELECT *, CAST(0 AS BIT) AS AlreadyApplied FROM dbo.[Order] WHERE Id = @Id;
     COMMIT TRAN;

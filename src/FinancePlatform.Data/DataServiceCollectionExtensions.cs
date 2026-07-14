@@ -20,6 +20,7 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<IAllocationRequestRepository, AllocationRequestRepository>();
         services.AddSingleton<ICashBalanceRepository, CashBalanceRepository>();
         services.AddSingleton<ICashReservationRepository, CashReservationRepository>();
+        services.AddSingleton<ICashOperationsRepository, CashOperationsRepository>();
         services.AddSingleton<IPositionRepository, PositionRepository>();
         services.AddSingleton<IOrderRepository, OrderRepository>();
         services.AddSingleton<ILedgerEntryRepository, LedgerEntryRepository>();
