@@ -1,14 +1,15 @@
 using System.Text.Json;
-using FinancePlatform.Models.Cash;
+using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
-using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Trade;
 using FinancePlatform.Services.Triggers;
 using FinancePlatform.Worker.EventProcessors;
@@ -19,18 +20,23 @@ namespace FinancePlatform.UnitTests.Trading;
 public class TradeEPBuyTests
 {
     [Fact]
-    public async Task Buy_with_insufficient_available_cash_fails_and_leaves_position_unchanged()
+    public async Task Buy_with_insufficient_trading_cash_fails()
     {
-        var (cash, positions, ep) = CreateEp();
-        var accountId = Guid.NewGuid();
-        var triggerId = Guid.NewGuid();
+        var directory = new InMemoryCustomerDirectory();
+        var provisioned = directory.CreateCustomer(new CreateCustomerRequest
+        {
+            Email = "insufficient@example.com",
+            FirstName = "Low",
+            LastName = "Cash",
+            Currency = "GBP"
+        });
+        directory.TryCreditTradingAccount(provisioned.TradingAccount.Id, 25m, Guid.NewGuid(), "seed-trading");
 
-        cash.TryAcquireLock(accountId, "GBP", triggerId, Guid.NewGuid(), TimeSpan.FromMinutes(1));
-        cash.TryDeposit("seed", accountId, "GBP", 25m, triggerId);
-        cash.TryReleaseLock(accountId, "GBP", triggerId);
+        var (ep, cash) = CreateEp(directory);
+        SeedExecutableCash(cash, provisioned.TradingAccount.Id, 25m);
 
         var result = await ep.ProcessAsync(
-            CreateContext(accountId, "buy-insufficient"),
+            CreateContext(provisioned.TradingAccount.Id, "buy-insufficient"),
             TriggerCodes.BuyAsset,
             JsonSerializer.Serialize(new TradeAssetRequest
             {
@@ -44,28 +50,27 @@ public class TradeEPBuyTests
 
         result.ResultCode.Should().Be(TriggerResultCode.Failure);
         result.Message.Should().Contain("Insufficient");
-        positions.GetQuantity(accountId, "VWRL").Should().Be(0m);
-        cash.GetSettled(accountId, "GBP").Should().Be(25m);
     }
 
     [Fact]
-    public async Task Buy_reserves_consumes_cash_and_increases_position()
+    public async Task Buy_creates_instruction_and_raises_investment_receive()
     {
-        var cash = new InMemoryCashService();
-        var ledger = new InMemoryLedgerService();
-        var positions = new InMemoryPositionService();
-        var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
-        var ep = new TradeEP(trade);
-        var accountId = Guid.NewGuid();
-        var seedTrigger = Guid.NewGuid();
+        var directory = new InMemoryCustomerDirectory();
+        var provisioned = directory.CreateCustomer(new CreateCustomerRequest
+        {
+            Email = "buy@example.com",
+            FirstName = "Buy",
+            LastName = "Ok",
+            Currency = "GBP"
+        });
+        directory.TryCreditTradingAccount(provisioned.TradingAccount.Id, 500m, Guid.NewGuid(), "seed-trading");
 
-        cash.TryAcquireLock(accountId, "GBP", seedTrigger, Guid.NewGuid(), TimeSpan.FromMinutes(1));
-        cash.TryDeposit("seed", accountId, "GBP", 200m, seedTrigger);
-        cash.TryReleaseLock(accountId, "GBP", seedTrigger);
+        var (ep, cash) = CreateEp(directory);
+        SeedExecutableCash(cash, provisioned.TradingAccount.Id, 500m);
 
+        var raiser = new TriggerRaiseBuffer();
         var result = await ep.ProcessAsync(
-            CreateContext(accountId, "buy-ok"),
+            CreateContext(provisioned.TradingAccount.Id, "buy-ok"),
             TriggerCodes.BuyAsset,
             JsonSerializer.Serialize(new TradeAssetRequest
             {
@@ -74,24 +79,30 @@ public class TradeEPBuyTests
                 Currency = "GBP",
                 CashAmount = 150m
             }),
-            new TriggerRaiseBuffer(),
+            raiser,
             CancellationToken.None);
 
         result.ResultCode.Should().Be(TriggerResultCode.Success);
-        cash.GetSettled(accountId, "GBP").Should().Be(50m);
-        positions.GetQuantity(accountId, "VWRL").Should().Be(2m);
-        orders.OrderCount.Should().Be(1);
-        ledger.EntryCount.Should().Be(1);
+        directory.GetTradingSettled(provisioned.TradingAccount.Id).Should().Be(350m);
+        raiser.Raised.Should().ContainSingle(t => t.TriggerCode == TriggerCodes.InvestmentReceiveMoney);
     }
 
-    private static (InMemoryCashService Cash, InMemoryPositionService Positions, TradeEP Ep) CreateEp()
+    private static (TradeEP Ep, InMemoryCashService Cash) CreateEp(InMemoryCustomerDirectory directory)
     {
         var cash = new InMemoryCashService();
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
-        var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
-        return (cash, positions, new TradeEP(trade));
+        var instructions = new InMemoryInvestmentInstructionStore();
+        var trade = new TradeService(cash, ledger, positions, directory, instructions);
+        return (new TradeEP(trade), cash);
+    }
+
+    private static void SeedExecutableCash(InMemoryCashService cash, Guid accountId, decimal amount)
+    {
+        var triggerId = Guid.NewGuid();
+        cash.TryAcquireLock(accountId, "GBP", triggerId, Guid.NewGuid(), TimeSpan.FromMinutes(1));
+        cash.TryDeposit("seed", accountId, "GBP", amount, triggerId);
+        cash.TryReleaseLock(accountId, "GBP", triggerId);
     }
 
     private static TriggerContext CreateContext(Guid accountId, string key) => new()
@@ -100,8 +111,8 @@ public class TradeEPBuyTests
         RootWorkflowId = Guid.NewGuid(),
         CorrelationId = Guid.NewGuid(),
         ExternalId = accountId,
-        ExternalType = ExternalEntityType.Account,
-        SourceComponent = "Cash",
+        ExternalType = ExternalEntityType.TradingAccount,
+        SourceComponent = "Api",
         TargetComponent = "Trading",
         IdempotencyKey = new(key)
     };

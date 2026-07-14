@@ -1,10 +1,12 @@
 using System.Text.Json;
+using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
@@ -18,53 +20,50 @@ namespace FinancePlatform.UnitTests.Trading;
 public class TradeEPSellTests
 {
     [Fact]
-    public async Task Sell_updates_position_and_is_idempotent()
+    public async Task Sell_creates_instruction_and_raises_investment_invest()
     {
-        var cash = new InMemoryCashService();
-        var ledger = new InMemoryLedgerService();
+        var directory = new InMemoryCustomerDirectory();
+        var provisioned = directory.CreateCustomer(new CreateCustomerRequest
+        {
+            Email = "sell@example.com",
+            FirstName = "Sell",
+            LastName = "Test",
+            Currency = "GBP"
+        });
+
+        var investmentAccount = directory.EnsureInvestmentAccount(
+            provisioned.Customer.Id,
+            provisioned.TradingAccount.Id,
+            "GBP");
+
         var positions = new InMemoryPositionService();
-        var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
+        positions.TryApplyBuy("seed-position", investmentAccount.Id, "VWRL", 3m);
+
+        var instructions = new InMemoryInvestmentInstructionStore();
+        var trade = new TradeService(
+            new InMemoryCashService(),
+            new InMemoryLedgerService(),
+            positions,
+            directory,
+            instructions);
         var ep = new TradeEP(trade);
-        var accountId = Guid.NewGuid();
-        var seedTrigger = Guid.NewGuid();
 
-        cash.TryAcquireLock(accountId, "GBP", seedTrigger, Guid.NewGuid(), TimeSpan.FromMinutes(1));
-        cash.TryDeposit("seed", accountId, "GBP", 300m, seedTrigger);
-        cash.TryReleaseLock(accountId, "GBP", seedTrigger);
-
-        var buyContext = CreateContext(accountId, "buy-1");
-        (await ep.ProcessAsync(
-            buyContext,
-            TriggerCodes.BuyAsset,
+        var raiser = new TriggerRaiseBuffer();
+        var result = await ep.ProcessAsync(
+            CreateContext(provisioned.TradingAccount.Id, "sell-1"),
+            TriggerCodes.SellAsset,
             JsonSerializer.Serialize(new TradeAssetRequest
             {
                 AssetSymbol = "VWRL",
-                Quantity = 3m,
+                Quantity = 2m,
                 Currency = "GBP",
-                CashAmount = 300m
+                CashAmount = 180m
             }),
-            new TriggerRaiseBuffer(),
-            CancellationToken.None)).ResultCode.Should().Be(TriggerResultCode.Success);
+            raiser,
+            CancellationToken.None);
 
-        var sellPayload = JsonSerializer.Serialize(new TradeAssetRequest
-        {
-            AssetSymbol = "VWRL",
-            Quantity = 2m,
-            Currency = "GBP",
-            CashAmount = 180m
-        });
-
-        var sellContext = CreateContext(accountId, "sell-1");
-        (await ep.ProcessAsync(sellContext, TriggerCodes.SellAsset, sellPayload, new TriggerRaiseBuffer(), CancellationToken.None))
-            .ResultCode.Should().Be(TriggerResultCode.Success);
-
-        var repeat = await ep.ProcessAsync(sellContext, TriggerCodes.SellAsset, sellPayload, new TriggerRaiseBuffer(), CancellationToken.None);
-        repeat.ResultCode.Should().Be(TriggerResultCode.Success);
-
-        positions.GetQuantity(accountId, "VWRL").Should().Be(1m);
-        cash.GetSettled(accountId, "GBP").Should().Be(180m);
-        orders.OrderCount.Should().Be(2);
+        result.ResultCode.Should().Be(TriggerResultCode.Success);
+        raiser.Raised.Should().ContainSingle(t => t.TriggerCode == TriggerCodes.InvestmentInvestMoney);
     }
 
     private static TriggerContext CreateContext(Guid accountId, string idempotencyKey) => new()
@@ -73,7 +72,7 @@ public class TradeEPSellTests
         RootWorkflowId = Guid.NewGuid(),
         CorrelationId = Guid.NewGuid(),
         ExternalId = accountId,
-        ExternalType = ExternalEntityType.Account,
+        ExternalType = ExternalEntityType.TradingAccount,
         SourceComponent = "Api",
         TargetComponent = "Trading",
         IdempotencyKey = new(idempotencyKey)

@@ -20,6 +20,7 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<IAllocationRequestRepository, AllocationRequestRepository>();
         services.AddSingleton<ICashBalanceRepository, CashBalanceRepository>();
         services.AddSingleton<ICashReservationRepository, CashReservationRepository>();
+        services.AddSingleton<ICashOperationsRepository, CashOperationsRepository>();
         services.AddSingleton<IPositionRepository, PositionRepository>();
         services.AddSingleton<IOrderRepository, OrderRepository>();
         services.AddSingleton<ILedgerEntryRepository, LedgerEntryRepository>();
@@ -28,6 +29,8 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<ICustomerAddressRepository, CustomerAddressRepository>();
         services.AddSingleton<ICustomerAccountRepository, CustomerAccountRepository>();
         services.AddSingleton<ITradingAccountRepository, TradingAccountRepository>();
+        services.AddSingleton<IInvestmentAccountRepository, InvestmentAccountRepository>();
+        services.AddSingleton<IInvestmentInstructionRepository, InvestmentInstructionRepository>();
         services.AddSingleton<IDistributionAgreementRepository, DistributionAgreementRepository>();
         services.AddSingleton<IDistributionElementRepository, DistributionElementRepository>();
         services.AddSingleton<ICustomerProvisionRepository, CustomerProvisionRepository>();

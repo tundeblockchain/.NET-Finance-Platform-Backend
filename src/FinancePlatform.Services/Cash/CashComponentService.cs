@@ -1,10 +1,7 @@
-using System.Text.Json;
 using FinancePlatform.Models.Cash;
 using FinancePlatform.Models.Components;
 using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
-using FinancePlatform.Models.Trade;
-using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Ledger;
 
 namespace FinancePlatform.Services.Cash;
@@ -61,25 +58,7 @@ public sealed class CashComponentService(
                 return ComponentOperationResult.Failure(ledger.Error ?? "Ledger posting failed.");
             }
 
-            return ComponentOperationResult.Success(
-                resultJson: """{"status":"deposited"}""",
-                nextTriggers:
-                [
-                    new NextTriggerSpec
-                    {
-                        TriggerCode = TriggerCodes.BuyAsset,
-                        QueueName = QueueNames.Trading,
-                        TargetComponent = "Trading",
-                        PayloadJson = JsonSerializer.Serialize(new TradeAssetRequest
-                        {
-                            AssetSymbol = request.AssetSymbol,
-                            Quantity = request.Quantity,
-                            Currency = request.Currency,
-                            CashAmount = request.Amount
-                        }),
-                        IdempotencyKey = $"{context.IdempotencyKey}:buy"
-                    }
-                ]);
+            return ComponentOperationResult.Success(resultJson: """{"status":"deposited"}""");
         }
         finally
         {

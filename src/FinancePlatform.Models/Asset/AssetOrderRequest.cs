@@ -5,6 +5,12 @@ namespace FinancePlatform.Models.Asset;
 /// </summary>
 public sealed class AssetOrderRequest
 {
+    public Guid InstructionId { get; set; }
+
+    public Guid OrderId { get; set; }
+
+    public Guid InvestmentAccountId { get; set; }
+
     public decimal Amount { get; set; }
 
     public decimal CashAmount { get; set; }

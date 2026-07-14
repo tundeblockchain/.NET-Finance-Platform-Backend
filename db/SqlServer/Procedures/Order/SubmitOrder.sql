@@ -38,7 +38,7 @@ BEGIN
 
     IF @Id IS NOT NULL
     BEGIN
-        SELECT * FROM dbo.[Order] WHERE Id = @Id;
+        SELECT *, CAST(1 AS BIT) AS AlreadyApplied FROM dbo.[Order] WHERE Id = @Id;
         COMMIT TRAN;
         RETURN;
     END
@@ -52,7 +52,7 @@ BEGIN
         @Id, @AccountId, @AllocationRequestId, @TriggerId, @AssetSymbol, @Side, @Quantity, @LimitPrice,
         3, /* Filled */ @IdempotencyKey, @Now, @Now, @Now, @ChangedBy);
 
-    SELECT * FROM dbo.[Order] WHERE Id = @Id;
+    SELECT *, CAST(0 AS BIT) AS AlreadyApplied FROM dbo.[Order] WHERE Id = @Id;
     COMMIT TRAN;
 END
 GO

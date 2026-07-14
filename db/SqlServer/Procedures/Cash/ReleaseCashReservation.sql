@@ -63,11 +63,21 @@ BEGIN
             DateModified = @Now,
             ChangedBy = @ChangedBy
         WHERE IdempotencyKey = @IdempotencyKey;
+
+        COMMIT TRAN;
+
+        SELECT b.*, CAST(0 AS BIT) AS AlreadyApplied
+        FROM dbo.CashBalance b
+        WHERE b.AccountId = @AccountId AND b.Currency = @Currency;
+        SELECT * FROM dbo.CashReservation WHERE IdempotencyKey = @IdempotencyKey;
+        RETURN;
     END
 
     COMMIT TRAN;
 
-    SELECT * FROM dbo.CashBalance WHERE AccountId = @AccountId AND Currency = @Currency;
+    SELECT b.*, CAST(1 AS BIT) AS AlreadyApplied
+    FROM dbo.CashBalance b
+    WHERE b.AccountId = @AccountId AND b.Currency = @Currency;
     SELECT * FROM dbo.CashReservation WHERE IdempotencyKey = @IdempotencyKey;
 END
 GO

@@ -31,7 +31,7 @@ BEGIN
 
     IF EXISTS (SELECT 1 FROM dbo.CashReservation WHERE IdempotencyKey = @IdempotencyKey)
     BEGIN
-        SELECT b.*
+        SELECT b.*, CAST(1 AS BIT) AS AlreadyApplied
         FROM dbo.CashBalance b
         WHERE b.AccountId = @AccountId AND b.Currency = @Currency;
         SELECT * FROM dbo.CashReservation WHERE IdempotencyKey = @IdempotencyKey;
@@ -58,8 +58,15 @@ BEGIN
 
     IF (@Settled - @Reserved) < @Amount
     BEGIN
+        DECLARE @Available DECIMAL(18, 4) = @Settled - @Reserved;
         ROLLBACK TRAN;
-        THROW 50022, 'Insufficient available cash.', 1;
+        DECLARE @Msg NVARCHAR(200) = CONCAT(
+            N'Insufficient available cash. Available=',
+            FORMAT(@Available, '0.####'),
+            N', requested=',
+            FORMAT(@Amount, '0.####'),
+            N'.');
+        THROW 50022, @Msg, 1;
     END
 
     UPDATE dbo.CashBalance
@@ -81,7 +88,9 @@ BEGIN
 
     COMMIT TRAN;
 
-    SELECT * FROM dbo.CashBalance WHERE AccountId = @AccountId AND Currency = @Currency;
+    SELECT b.*, CAST(0 AS BIT) AS AlreadyApplied
+    FROM dbo.CashBalance b
+    WHERE b.AccountId = @AccountId AND b.Currency = @Currency;
     SELECT * FROM dbo.CashReservation WHERE IdempotencyKey = @IdempotencyKey;
 END
 GO

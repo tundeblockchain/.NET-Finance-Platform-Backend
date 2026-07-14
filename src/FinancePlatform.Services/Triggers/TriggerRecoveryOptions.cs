@@ -20,7 +20,7 @@ public sealed class TriggerRecoveryOptions
     public int TriggerHeartbeatIntervalSeconds { get; set; } = 5;
 
     /// <summary>
-    /// How often queue-alive heartbeat logs are emitted.
+    /// How often queue-alive heartbeat logs are emitted. Set to 0 or less to disable logging.
     /// </summary>
-    public int QueueHeartbeatLogIntervalSeconds { get; set; } = 5;
+    public int QueueHeartbeatLogIntervalSeconds { get; set; } = 0;
 }

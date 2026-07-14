@@ -4,12 +4,14 @@ using FinancePlatform.Models.Components;
 using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
+using FinancePlatform.Models.Entities;
+using FinancePlatform.Models.Investment;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Ledger;
-using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
 
 namespace FinancePlatform.Services.Trade;
@@ -20,9 +22,9 @@ namespace FinancePlatform.Services.Trade;
 public sealed class TradeService(
     ICashService cashService,
     ILedgerService ledgerService,
-    IOrderService orderService,
     IPositionService positionService,
-    ICustomerDirectory customerDirectory) : ITradeService
+    ICustomerDirectory customerDirectory,
+    IInvestmentInstructionStore instructionStore) : ITradeService
 {
     private static readonly TimeSpan LockLease = TimeSpan.FromSeconds(30);
 
@@ -167,11 +169,14 @@ public sealed class TradeService(
         var accountId = context.ExternalId
             ?? throw new InvalidOperationException("Buy requires ExternalId (Account).");
 
+        var tradingAccount = customerDirectory.FindTradingAccount(accountId);
+        if (tradingAccount is null)
+        {
+            return ComponentOperationResult.Failure("Buy requires a registered trading account.");
+        }
+
         var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
         var reserveKey = $"{context.IdempotencyKey}:reserve";
-        var orderKey = $"{context.IdempotencyKey}:order";
-        var positionKey = $"{context.IdempotencyKey}:position";
-        var ledgerKey = $"{context.IdempotencyKey}:ledger";
 
         var lockResult = cashService.TryAcquireLock(
             accountId,
@@ -203,23 +208,17 @@ public sealed class TradeService(
 
             reserved = true;
 
-            var order = orderService.TrySubmit(
-                orderKey,
+            var debited = customerDirectory.TryDebitTradingAccount(
                 accountId,
+                request.CashAmount,
                 context.TriggerId,
-                allocationId,
-                request.AssetSymbol,
-                OrderSide.Buy,
-                request.Quantity,
-                limitPrice: null);
+                $"{context.IdempotencyKey}:trading-debit");
 
-            if (!order.Succeeded)
+            if (!debited)
             {
                 cashService.TryReleaseReservation(reserveKey, context.TriggerId);
-                return ComponentOperationResult.Failure(order.Error ?? "Order submit failed.");
+                return ComponentOperationResult.Failure("Insufficient funds in trading account.");
             }
-
-            positionService.TryApplyBuy(positionKey, accountId, request.AssetSymbol, request.Quantity);
 
             var consume = cashService.TryConsumeReservation(reserveKey, context.TriggerId);
             if (!consume.Succeeded && !consume.AlreadyApplied)
@@ -229,23 +228,64 @@ public sealed class TradeService(
 
             reserved = false;
 
-            var ledger = ledgerService.TryPost(
-                ledgerKey,
-                accountId,
-                request.Currency,
-                request.CashAmount,
-                LedgerEntryType.Debit,
-                $"Buy {request.Quantity} {request.AssetSymbol}",
-                context.TriggerId,
-                allocationId);
+            var investmentAccount = customerDirectory.EnsureInvestmentAccount(
+                tradingAccount.CustomerId,
+                tradingAccount.Id,
+                request.Currency);
 
-            if (!ledger.Succeeded)
+            customerDirectory.EnsureTradingToInvestmentDistribution(
+                tradingAccount.CustomerId,
+                tradingAccount.Id,
+                investmentAccount.Id);
+
+            var instructionResult = instructionStore.TryCreate(new InvestmentInstruction
             {
-                return ComponentOperationResult.Failure(ledger.Error ?? "Ledger debit failed.");
+                CustomerId = tradingAccount.CustomerId,
+                TradingAccountId = tradingAccount.Id,
+                InvestmentAccountId = investmentAccount.Id,
+                AssetSymbol = request.AssetSymbol,
+                Quantity = request.Quantity,
+                CashAmount = request.CashAmount,
+                Currency = request.Currency,
+                Side = OrderSide.Buy,
+                Status = InvestmentInstructionStatus.Pending,
+                IdempotencyKey = context.IdempotencyKey.Value
+            });
+
+            if (!instructionResult.Succeeded || instructionResult.Instruction is null)
+            {
+                return ComponentOperationResult.Failure(instructionResult.Error ?? "Unable to create investment instruction.");
             }
 
-            SyncTradingAccountDebit(accountId, request.CashAmount, context);
-            return ComponentOperationResult.Success(resultJson: """{"status":"bought"}""");
+            var instruction = instructionResult.Instruction;
+            instructionStore.TryUpdateStatus(instruction.Id, InvestmentInstructionStatus.Processing);
+
+            var investPayload = JsonSerializer.Serialize(new InvestMoneyRequest
+            {
+                InstructionId = instruction.Id,
+                CustomerId = tradingAccount.CustomerId,
+                TradingAccountId = tradingAccount.Id,
+                InvestmentAccountId = investmentAccount.Id,
+                Amount = request.CashAmount,
+                CashAmount = request.CashAmount,
+                Currency = request.Currency,
+                AssetSymbol = request.AssetSymbol,
+                Quantity = request.Quantity
+            });
+
+            return ComponentOperationResult.Success(
+                resultJson: $$"""{"status":"buy-instruction-created","instructionId":"{{instruction.Id}}"}""",
+                nextTriggers:
+                [
+                    new NextTriggerSpec
+                    {
+                        TriggerCode = TriggerCodes.InvestmentReceiveMoney,
+                        QueueName = QueueNames.Investment,
+                        TargetComponent = "Investment",
+                        PayloadJson = investPayload,
+                        IdempotencyKey = $"{context.IdempotencyKey}:8001"
+                    }
+                ]);
         }
         finally
         {
@@ -265,86 +305,70 @@ public sealed class TradeService(
         var accountId = context.ExternalId
             ?? throw new InvalidOperationException("Sell requires ExternalId (Account).");
 
-        var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
-        var orderKey = $"{context.IdempotencyKey}:order";
-        var positionKey = $"{context.IdempotencyKey}:position";
-        var creditKey = $"{context.IdempotencyKey}:credit";
-        var ledgerKey = $"{context.IdempotencyKey}:ledger";
-
-        var lockResult = cashService.TryAcquireLock(
-            accountId,
-            request.Currency,
-            context.TriggerId,
-            allocationId,
-            LockLease);
-
-        if (!lockResult.IsHeld)
+        var tradingAccount = customerDirectory.FindTradingAccount(accountId);
+        if (tradingAccount is null)
         {
-            return ComponentOperationResult.Retry("Cash balance is locked by another trigger.");
+            return ComponentOperationResult.Failure("Sell requires a registered trading account.");
         }
 
-        try
+        var investmentAccount = customerDirectory.EnsureInvestmentAccount(
+            tradingAccount.CustomerId,
+            tradingAccount.Id,
+            request.Currency);
+
+        customerDirectory.EnsureTradingToInvestmentDistribution(
+            tradingAccount.CustomerId,
+            tradingAccount.Id,
+            investmentAccount.Id);
+
+        var instructionResult = instructionStore.TryCreate(new InvestmentInstruction
         {
-            var sell = positionService.TryApplySell(
-                positionKey,
-                accountId,
-                request.AssetSymbol,
-                request.Quantity);
+            CustomerId = tradingAccount.CustomerId,
+            TradingAccountId = tradingAccount.Id,
+            InvestmentAccountId = investmentAccount.Id,
+            AssetSymbol = request.AssetSymbol,
+            Quantity = request.Quantity,
+            CashAmount = request.CashAmount,
+            Currency = request.Currency,
+            Side = OrderSide.Sell,
+            Status = InvestmentInstructionStatus.Pending,
+            IdempotencyKey = context.IdempotencyKey.Value
+        });
 
-            if (!sell.Succeeded)
-            {
-                return ComponentOperationResult.Failure(sell.Error ?? "Sell failed.");
-            }
-
-            var order = orderService.TrySubmit(
-                orderKey,
-                accountId,
-                context.TriggerId,
-                allocationId,
-                request.AssetSymbol,
-                OrderSide.Sell,
-                request.Quantity,
-                limitPrice: null);
-
-            if (!order.Succeeded)
-            {
-                return ComponentOperationResult.Failure(order.Error ?? "Order submit failed.");
-            }
-
-            var credit = cashService.TryDeposit(
-                creditKey,
-                accountId,
-                request.Currency,
-                request.CashAmount,
-                context.TriggerId);
-
-            if (!credit.Succeeded)
-            {
-                return ComponentOperationResult.Failure(credit.Error ?? "Cash credit failed.");
-            }
-
-            var ledger = ledgerService.TryPost(
-                ledgerKey,
-                accountId,
-                request.Currency,
-                request.CashAmount,
-                LedgerEntryType.Credit,
-                $"Sell {request.Quantity} {request.AssetSymbol}",
-                context.TriggerId,
-                allocationId);
-
-            if (!ledger.Succeeded)
-            {
-                return ComponentOperationResult.Failure(ledger.Error ?? "Ledger credit failed.");
-            }
-
-            SyncTradingAccountCredit(accountId, request.CashAmount, context);
-            return ComponentOperationResult.Success(resultJson: """{"status":"sold"}""");
-        }
-        finally
+        if (!instructionResult.Succeeded || instructionResult.Instruction is null)
         {
-            cashService.TryReleaseLock(accountId, request.Currency, context.TriggerId);
+            return ComponentOperationResult.Failure(instructionResult.Error ?? "Unable to create investment instruction.");
         }
+
+        var instruction = instructionResult.Instruction;
+        instructionStore.TryUpdateStatus(instruction.Id, InvestmentInstructionStatus.Processing);
+
+        var investPayload = JsonSerializer.Serialize(new InvestMoneyRequest
+        {
+            InstructionId = instruction.Id,
+            CustomerId = tradingAccount.CustomerId,
+            TradingAccountId = tradingAccount.Id,
+            InvestmentAccountId = investmentAccount.Id,
+            Amount = request.CashAmount,
+            CashAmount = request.CashAmount,
+            Currency = request.Currency,
+            AssetSymbol = request.AssetSymbol,
+            Quantity = request.Quantity
+        });
+
+        return ComponentOperationResult.Success(
+            resultJson: $$"""{"status":"sell-instruction-created","instructionId":"{{instruction.Id}}"}""",
+            nextTriggers:
+            [
+                new NextTriggerSpec
+                {
+                    TriggerCode = TriggerCodes.InvestmentInvestMoney,
+                    QueueName = QueueNames.Investment,
+                    TargetComponent = "Investment",
+                    PayloadJson = investPayload,
+                    IdempotencyKey = $"{context.IdempotencyKey}:8002"
+                }
+            ]);
     }
 
     public ComponentOperationResult ReverseBuy(TriggerContext context, TradeAssetRequest request)

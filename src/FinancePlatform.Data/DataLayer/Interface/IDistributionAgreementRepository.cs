@@ -13,4 +13,11 @@ public interface IDistributionAgreementRepository
     Task<DistributionAgreement> UpsertAsync(
         DistributionAgreement agreement,
         CancellationToken cancellationToken = default);
+
+    Task<DistributionAgreement> EnsureTradingToInvestmentAsync(
+        int customerId,
+        Guid tradingAccountId,
+        Guid investmentAccountId,
+        string changedBy,
+        CancellationToken cancellationToken = default);
 }

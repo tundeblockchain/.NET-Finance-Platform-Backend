@@ -42,7 +42,7 @@ public sealed class QueueWorkerHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation(
+        _logger.LogDebug(
             "Queue worker started for {QueueName} (maxConcurrency={MaxConcurrency})",
             _queue.Name,
             _queue.MaxConcurrency);
