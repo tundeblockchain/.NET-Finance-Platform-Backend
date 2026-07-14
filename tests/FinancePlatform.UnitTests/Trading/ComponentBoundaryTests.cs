@@ -2,6 +2,7 @@ using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
@@ -28,7 +29,8 @@ public class ComponentBoundaryTests
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
+        var instructions = new InMemoryInvestmentInstructionStore();
+        var trade = new TradeService(cash, ledger, positions, new InMemoryCustomerDirectory(), instructions);
         var accountId = Guid.NewGuid();
 
         positions.TryApplyBuy("p1", accountId, "VWRL", 5m);

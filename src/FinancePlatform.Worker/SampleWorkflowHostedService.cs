@@ -50,7 +50,7 @@ public sealed class SampleWorkflowHostedService(
             IdempotencyKey = $"sample-deposit:{rootWorkflowId:N}"
         }, stoppingToken);
 
-        logger.LogInformation(
+        logger.LogDebug(
             "Seeded sample workflow {RootWorkflowId} with deposit trigger {TriggerId}",
             rootWorkflowId,
             trigger.Id);

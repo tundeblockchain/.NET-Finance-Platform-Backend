@@ -28,6 +28,13 @@ internal static class CustomerMapper
         new(account.Id, account.CustomerId, account.Currency, account.Settled, account.Reserved, account.Available);
 
     public static AccountBalanceResponse ToTradingAccountBalance(
-        FinancePlatform.Models.Entities.TradingAccount account) =>
-        new(account.Id, account.CustomerId, account.Currency, account.Settled, account.Reserved, account.Available);
+        FinancePlatform.Models.Entities.TradingAccount account,
+        decimal? availableOverride = null) =>
+        new(
+            account.Id,
+            account.CustomerId,
+            account.Currency,
+            account.Settled,
+            account.Reserved,
+            availableOverride ?? account.Available);
 }

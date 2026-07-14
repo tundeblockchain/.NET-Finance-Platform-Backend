@@ -66,10 +66,12 @@ public static class TriggerEngineServiceCollectionExtensions
         if (useSqlServer)
         {
             services.AddSingleton<ICustomerDirectory, SqlCustomerDirectory>();
+            services.AddSingleton<IInvestmentInstructionStore, SqlInvestmentInstructionStore>();
         }
         else
         {
             services.AddSingleton<ICustomerDirectory, InMemoryCustomerDirectory>();
+            services.AddSingleton<IInvestmentInstructionStore, InMemoryInvestmentInstructionStore>();
         }
 
         services.AddSingleton<IAllocationService, AllocationService>();

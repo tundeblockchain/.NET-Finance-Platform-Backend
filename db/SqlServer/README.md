@@ -37,21 +37,26 @@ The script applies scripts in this order:
 ```
 SqlServer/
 ├── 00_CreateDatabase.sql
-├── Tables/           # Account.sql, Order.sql, SystemEventTrigger.sql, …
-├── Archives/         # Account_a.sql, Order_a.sql, … (no trigger archives)
+├── Tables/           # Account.sql, TradingAccount.sql, InvestmentAccount.sql, InvestmentInstruction.sql, …
+├── Archives/         # Account_a.sql, InvestmentAccount_a.sql, InvestmentInstruction_a.sql, …
 └── Procedures/
-    ├── Account/              # get_Account_f.sql, Account_u.sql
-    ├── AllocationRequest/
-    ├── CashBalance/
-    ├── CashReservation/
-    ├── Position/
-    ├── Order/
-    ├── LedgerEntry/
-    ├── SystemEventTrigger/
-    ├── SystemEventWorking/
-    └── Triggers/             # ClaimTrigger, CompleteTrigger, …
+    ├── Account/
+    ├── InvestmentAccount/       # Ensure, Credit/Debit, get_*, _u
+    ├── InvestmentInstruction/   # Create, SetOrderId, UpdateStatus, get_*
+    ├── CustomerOps/             # ProvisionCustomer, Credit/Debit*, EnsureTradingToInvestmentDistribution
+    ├── …
+    └── Triggers/
 ```
 
+Investment buy path persistence:
+
+| Object | Purpose |
+|--------|---------|
+| `InvestmentAccount` | Cash parked for investment after Trading distribute |
+| `InvestmentInstruction` | Trading-created order details (asset, qty, amount, side) |
+| `EnsureInvestmentAccount` | Lazy-create investment account for a trading account |
+| `EnsureTradingToInvestmentDistribution` | Agreement + element (target 802) |
+| `CreateInvestmentInstruction` | Idempotent instruction insert |
 ## Conventions
 
 | Object | Pattern | Example |

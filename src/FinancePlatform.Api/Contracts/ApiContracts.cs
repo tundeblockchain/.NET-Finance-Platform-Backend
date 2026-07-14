@@ -17,18 +17,15 @@ public sealed record AddressHttpRequest(
 
 public sealed record CustomerDepositHttpRequest(
     decimal Amount,
-    string IdempotencyKey,
+    string PaymentReference,
     Guid? CustomerAccountId = null,
-    string? Currency = null,
-    Guid? RootWorkflowId = null);
+    string? Currency = null);
 
 public sealed record CustomerDistributeHttpRequest(
     decimal Amount,
-    string IdempotencyKey,
     Guid? CustomerAccountId = null,
     Guid? TradingAccountId = null,
-    string? Currency = null,
-    Guid? RootWorkflowId = null);
+    string? Currency = null);
 
 public sealed record CustomerResponse(
     int Id,
@@ -59,20 +56,18 @@ public sealed record AccountBalanceResponse(
 public sealed record DepositRequest(
     Guid AccountId,
     decimal Amount,
-    string IdempotencyKey,
+    string PaymentReference,
     string? Currency = null,
     string? AssetSymbol = null,
-    decimal Quantity = 1m,
-    Guid? RootWorkflowId = null);
+    decimal Quantity = 1m);
 
 public sealed record BuyRequest(
     Guid AccountId,
     string AssetSymbol,
     decimal Quantity,
     decimal CashAmount,
-    string IdempotencyKey,
+    string PaymentReference,
     string? Currency = null,
-    Guid? RootWorkflowId = null,
     Guid? AllocationRequestId = null);
 
 public sealed record SellRequest(
@@ -80,27 +75,24 @@ public sealed record SellRequest(
     string AssetSymbol,
     decimal Quantity,
     decimal CashAmount,
-    string IdempotencyKey,
+    string PaymentReference,
     string? Currency = null,
-    Guid? RootWorkflowId = null,
     Guid? AllocationRequestId = null);
 
 public sealed record TradingOrderRequest(
     string AssetSymbol,
     decimal Quantity,
     decimal CashAmount,
-    string IdempotencyKey,
+    string PaymentReference,
     string? Currency = null,
-    Guid? TradingAccountId = null,
-    Guid? RootWorkflowId = null);
+    Guid? TradingAccountId = null);
 
 public sealed record TradingTransferToCustomerHttpRequest(
     decimal Amount,
-    string IdempotencyKey,
+    string PaymentReference,
     Guid? TradingAccountId = null,
     Guid? CustomerAccountId = null,
-    string? Currency = null,
-    Guid? RootWorkflowId = null);
+    string? Currency = null);
 
 public sealed record TradingFundsResponse(
     AccountBalanceResponse Cash,
@@ -121,8 +113,8 @@ public sealed record TradeHistoryItemResponse(
     DateTimeOffset CreatedUtc,
     DateTimeOffset? SubmittedUtc);
 
-public sealed record WorkflowAcceptedResponse(
-    Guid TriggerId,
-    Guid RootWorkflowId,
-    int TriggerCode,
-    string QueueName);
+public sealed record WorkflowAcceptedResponse(string Message)
+{
+    public static WorkflowAcceptedResponse RequestWillBeProcessed { get; } =
+        new("Your request has been accepted and will be processed.");
+}

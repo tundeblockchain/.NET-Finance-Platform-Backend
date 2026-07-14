@@ -1,7 +1,9 @@
 using System.Text.Json;
 using FinancePlatform.Data.Triggers;
 using FinancePlatform.Models.Cash;
+using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Enums;
+using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.UnitTests.Triggers.Support;
 using FluentAssertions;
@@ -11,7 +13,7 @@ namespace FinancePlatform.UnitTests.Triggers;
 public class TriggerExecutionServiceTests
 {
     [Fact]
-    public async Task Successful_processor_completes_and_raises_child_triggers()
+    public async Task Successful_deposit_processor_completes_without_auto_buy()
     {
         var harness = TriggerExecutionTestHarness.Create();
         var accountId = Guid.NewGuid();
@@ -41,20 +43,11 @@ public class TriggerExecutionServiceTests
 
         await harness.Execution.ExecuteAsync(claimed!);
 
-        var buyClaimed = await harness.Store.TryClaimAsync("Trading", "worker-a", TimeSpan.FromSeconds(30));
-        buyClaimed.Should().NotBeNull();
-        await harness.Execution.ExecuteAsync(buyClaimed!);
-
         var all = harness.Store.GetAll();
         all.Should().Contain(t => t.Id == root.Id && t.Status == TriggerStatus.Completed);
-        all.Should().Contain(t =>
-            t.TriggerCode == TriggerCodes.BuyAsset
-            && t.QueueName == "Trading"
-            && t.ParentTriggerId == root.Id
-            && t.Status == TriggerStatus.Completed);
+        all.Should().NotContain(t => t.TriggerCode == TriggerCodes.BuyAsset);
 
-        harness.Cash.GetSettled(accountId, "GBP").Should().Be(0m);
-        harness.Trading.GetPosition(accountId, "VWRL").Should().Be(2m);
+        harness.Cash.GetSettled(accountId, "GBP").Should().Be(250m);
     }
 
     [Fact]
@@ -115,50 +108,54 @@ public class TriggerExecutionServiceTests
     }
 
     [Fact]
-    public async Task Deposit_then_buy_chain_processes_end_to_end()
+    public async Task Trading_buy_chains_through_investment_and_asset()
     {
         var harness = TriggerExecutionTestHarness.Create();
-        var accountId = Guid.NewGuid();
-        var rootId = Guid.NewGuid();
+        var provisioned = harness.Customer.CreateCustomer(new CreateCustomerRequest
+        {
+            Email = "chain@example.com",
+            FirstName = "Chain",
+            LastName = "Test",
+            Currency = "GBP"
+        });
+
+        var tradingAccountId = provisioned.TradingAccount.Id;
+        harness.Directory.TryCreditTradingAccount(tradingAccountId, 500m, Guid.NewGuid(), "seed-trading");
+        var seedTriggerId = Guid.NewGuid();
+        harness.Cash.TryAcquireLock(tradingAccountId, "GBP", seedTriggerId, Guid.NewGuid(), TimeSpan.FromMinutes(1));
+        harness.Cash.TryDeposit("seed-cash", tradingAccountId, "GBP", 500m, seedTriggerId);
+        harness.Cash.TryReleaseLock(tradingAccountId, "GBP", seedTriggerId);
 
         await harness.Store.EnqueueAsync(new EnqueueTriggerCommand
         {
-            TriggerCode = TriggerCodes.DepositCash,
-            QueueName = "Cash",
-            PayloadJson = JsonSerializer.Serialize(new DepositCashRequest
+            TriggerCode = TriggerCodes.BuyAsset,
+            QueueName = QueueNames.Trading,
+            PayloadJson = JsonSerializer.Serialize(new TradeAssetRequest
             {
-                Amount = 500m,
-                Currency = "GBP",
                 AssetSymbol = "VWRL",
-                Quantity = 3m
+                Quantity = 3m,
+                Currency = "GBP",
+                CashAmount = 500m
             }),
-            RootWorkflowId = rootId,
-            CorrelationId = rootId,
-            ExternalId = accountId,
-            ExternalType = ExternalEntityType.Account,
+            RootWorkflowId = Guid.NewGuid(),
+            CorrelationId = Guid.NewGuid(),
+            ExternalId = tradingAccountId,
+            ExternalType = ExternalEntityType.TradingAccount,
             SourceComponent = "Api",
-            TargetComponent = "Cash",
-            IdempotencyKey = "chain-deposit"
+            TargetComponent = "Trading",
+            IdempotencyKey = "chain-buy"
         });
 
-        for (var i = 0; i < 5; i++)
-        {
-            var cashClaim = await harness.Store.TryClaimAsync("Cash", "w-cash", TimeSpan.FromSeconds(30));
-            if (cashClaim is not null)
-            {
-                await harness.Execution.ExecuteAsync(cashClaim);
-            }
+        await harness.DrainQueuesAsync(
+            QueueNames.Trading,
+            QueueNames.Investment,
+            QueueNames.AssetTrading);
 
-            var tradeClaim = await harness.Store.TryClaimAsync("Trading", "w-trade", TimeSpan.FromSeconds(30));
-            if (tradeClaim is not null)
-            {
-                await harness.Execution.ExecuteAsync(tradeClaim);
-            }
-        }
-
-        harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.DepositCash && t.Status == TriggerStatus.Completed);
         harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.BuyAsset && t.Status == TriggerStatus.Completed);
-        harness.Cash.GetSettled(accountId, "GBP").Should().Be(0m);
-        harness.Trading.GetPosition(accountId, "VWRL").Should().Be(3m);
+        harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.AssetBuyAsset && t.Status == TriggerStatus.Completed);
+
+        var investmentAccount = harness.Directory.FindInvestmentAccountByTradingAccount(tradingAccountId);
+        investmentAccount.Should().NotBeNull();
+        harness.Positions.GetQuantity(investmentAccount!.Id, "VWRL").Should().Be(3m);
     }
 }

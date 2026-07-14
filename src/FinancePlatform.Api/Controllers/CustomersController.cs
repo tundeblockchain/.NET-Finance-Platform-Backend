@@ -71,7 +71,7 @@ public sealed class CustomersController(
     [HttpPost("{customerId:int}/deposits")]
     [EndpointName("DepositFunds")]
     [EndpointSummary("Deposit funds")]
-    [EndpointDescription("Credits the CustomerAccount (trigger 6001). Transfer to trading separately.")]
+    [EndpointDescription("Credits the CustomerAccount (trigger 6001). Provide a unique paymentReference for safe retries.")]
     public async Task<ActionResult<WorkflowAcceptedResponse>> DepositFunds(
         int customerId,
         [FromBody] CustomerDepositHttpRequest body,
@@ -87,19 +87,16 @@ public sealed class CustomersController(
             ? id
             : customer.CustomerAccount.Id;
 
-        var trigger = await workflowsService.EnqueueCustomerDepositAsync(new CustomerDepositWorkflowCommand
+        await workflowsService.EnqueueCustomerDepositAsync(new CustomerDepositWorkflowCommand
         {
             CustomerId = customerId,
             CustomerAccountId = accountId,
             Amount = body.Amount,
             Currency = body.Currency ?? customer.CustomerAccount.Currency,
-            IdempotencyKey = body.IdempotencyKey,
-            RootWorkflowId = body.RootWorkflowId
+            IdempotencyKey = body.PaymentReference
         }, ct);
 
-        return Accepted(
-            $"/api/workflows/triggers/{trigger.Id}",
-            new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
+        return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }
 
     [HttpPost("{customerId:int}/distribute-to-trading")]
@@ -124,19 +121,16 @@ public sealed class CustomersController(
             ? ta
             : customer.TradingAccount.Id;
 
-        var trigger = await workflowsService.EnqueueCustomerDistributeAsync(new CustomerDistributeWorkflowCommand
+        await workflowsService.EnqueueCustomerDistributeAsync(new CustomerDistributeWorkflowCommand
         {
             CustomerId = customerId,
             CustomerAccountId = customerAccountId,
             TradingAccountId = tradingAccountId,
             Amount = body.Amount,
             Currency = body.Currency ?? customer.CustomerAccount.Currency,
-            IdempotencyKey = body.IdempotencyKey,
-            RootWorkflowId = body.RootWorkflowId
+            IdempotencyKey = $"xfer-to-trading:{customerId}:{customerAccountId}:{Guid.NewGuid():N}"
         }, ct);
 
-        return Accepted(
-            $"/api/workflows/triggers/{trigger.Id}",
-            new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
+        return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }
 }

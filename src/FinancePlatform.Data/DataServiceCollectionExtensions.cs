@@ -28,6 +28,8 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<ICustomerAddressRepository, CustomerAddressRepository>();
         services.AddSingleton<ICustomerAccountRepository, CustomerAccountRepository>();
         services.AddSingleton<ITradingAccountRepository, TradingAccountRepository>();
+        services.AddSingleton<IInvestmentAccountRepository, InvestmentAccountRepository>();
+        services.AddSingleton<IInvestmentInstructionRepository, InvestmentInstructionRepository>();
         services.AddSingleton<IDistributionAgreementRepository, DistributionAgreementRepository>();
         services.AddSingleton<IDistributionElementRepository, DistributionElementRepository>();
         services.AddSingleton<ICustomerProvisionRepository, CustomerProvisionRepository>();

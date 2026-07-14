@@ -4,6 +4,7 @@ using FinancePlatform.Models.Entities;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
 using FinancePlatform.Services.Workflows;
@@ -121,7 +122,7 @@ public class TradingControllerTests
 
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
         var body = accepted.Value.Should().BeOfType<WorkflowAcceptedResponse>().Subject;
-        body.TriggerCode.Should().Be(TriggerCodes.BuyAsset);
+        body.Message.Should().Be(WorkflowAcceptedResponse.RequestWillBeProcessed.Message);
 
         await workflows.Received(1).EnqueueBuyAsync(
             Arg.Is<BuyWorkflowCommand>(c =>
@@ -182,7 +183,7 @@ public class TradingControllerTests
 
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
         var body = accepted.Value.Should().BeOfType<WorkflowAcceptedResponse>().Subject;
-        body.TriggerCode.Should().Be(TriggerCodes.TradingTransferToCustomer);
+        body.Message.Should().Be(WorkflowAcceptedResponse.RequestWillBeProcessed.Message);
 
         await workflows.Received(1).EnqueueTradingTransferToCustomerAsync(
             Arg.Is<TradingTransferToCustomerWorkflowCommand>(c =>
@@ -197,9 +198,13 @@ public class TradingControllerTests
         ICustomerService customers,
         IWorkflowEnqueueService? workflows = null,
         IOrderService? orderService = null,
-        IPositionService? positionService = null) =>
+        IPositionService? positionService = null,
+        ICustomerDirectory? customerDirectory = null,
+        IInvestmentInstructionStore? instructionStore = null) =>
         new(
             customers,
+            customerDirectory ?? Substitute.For<ICustomerDirectory>(),
+            instructionStore ?? Substitute.For<IInvestmentInstructionStore>(),
             workflows ?? Substitute.For<IWorkflowEnqueueService>(),
             orderService ?? Substitute.For<IOrderService>(),
             positionService ?? Substitute.For<IPositionService>());
