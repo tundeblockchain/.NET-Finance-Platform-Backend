@@ -19,6 +19,22 @@ public sealed class TriggerRetryService(
         CancellationToken cancellationToken = default)
     {
         var settings = options.Value;
+        if (trigger.AttemptCount >= settings.MaxAttempts)
+        {
+            var failMessage =
+                $"{error} (max attempts {settings.MaxAttempts} exceeded; attempt={trigger.AttemptCount})";
+
+            await triggerStore.FailAsync(trigger.Id, failMessage, cancellationToken);
+
+            logger.LogError(
+                "Stopped retrying trigger {TriggerId} after {AttemptCount} attempt(s) (max={MaxAttempts}): {Error}",
+                trigger.Id,
+                trigger.AttemptCount,
+                settings.MaxAttempts,
+                error);
+            return;
+        }
+
         var delay = RetryBackoffCalculator.Calculate(
             trigger.AttemptCount,
             TimeSpan.FromMilliseconds(settings.BaseDelayMilliseconds),

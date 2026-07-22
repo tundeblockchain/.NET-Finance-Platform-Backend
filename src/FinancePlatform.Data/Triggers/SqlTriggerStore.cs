@@ -120,6 +120,30 @@ public sealed class SqlTriggerStore(IDbConnectionFactory connectionFactory) : IT
                 cancellationToken: cancellationToken));
     }
 
+    public async Task<SystemEventTrigger> RequeueAsync(
+        Guid triggerId,
+        DateTimeOffset? nextAttemptUtc = null,
+        bool resetAttemptCount = true,
+        string? changedBy = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = connectionFactory.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+
+        return await connection.QuerySingleAsync<SystemEventTrigger>(
+            new CommandDefinition(
+                TriggerProcedureNames.Requeue,
+                new
+                {
+                    TriggerId = triggerId,
+                    NextAttemptUtc = nextAttemptUtc,
+                    ResetAttemptCount = resetAttemptCount,
+                    ChangedBy = changedBy
+                },
+                commandType: CommandType.StoredProcedure,
+                cancellationToken: cancellationToken));
+    }
+
     public async Task MarkCompensationAsync(Guid triggerId, string error, CancellationToken cancellationToken = default)
     {
         await using var connection = connectionFactory.CreateConnection();

@@ -21,6 +21,17 @@ public interface ITriggerStore
 
     Task FailAsync(Guid triggerId, string error, CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Manually requeues a Failed trigger as Pending (e.g. after the underlying issue is resolved).
+    /// Resets AttemptCount by default so the trigger gets a fresh retry budget.
+    /// </summary>
+    Task<SystemEventTrigger> RequeueAsync(
+        Guid triggerId,
+        DateTimeOffset? nextAttemptUtc = null,
+        bool resetAttemptCount = true,
+        string? changedBy = null,
+        CancellationToken cancellationToken = default);
+
     Task MarkCompensationAsync(Guid triggerId, string error, CancellationToken cancellationToken = default);
 
     Task HeartbeatAsync(Guid triggerId, string workerInstanceId, TimeSpan leaseDuration, CancellationToken cancellationToken = default);

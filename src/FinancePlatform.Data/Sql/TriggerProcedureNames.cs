@@ -7,6 +7,7 @@ public static class TriggerProcedureNames
     public const string Complete = "CompleteTrigger";
     public const string Retry = "RetryTrigger";
     public const string Fail = "FailTrigger";
+    public const string Requeue = "RequeueTrigger";
     public const string MarkCompensation = "MarkCompensationTrigger";
     public const string Heartbeat = "HeartbeatTrigger";
     public const string RecoverExpired = "RecoverExpiredTriggers";

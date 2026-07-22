@@ -175,6 +175,36 @@ public sealed class InMemoryTriggerStore(TimeProvider? timeProvider = null) : IT
         return Task.CompletedTask;
     }
 
+    public Task<SystemEventTrigger> RequeueAsync(
+        Guid triggerId,
+        DateTimeOffset? nextAttemptUtc = null,
+        bool resetAttemptCount = true,
+        string? changedBy = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_gate)
+        {
+            var trigger = GetRequired(triggerId);
+            TriggerStatusTransitions.EnsureCanTransition(trigger.Status, TriggerStatus.Pending);
+            var now = UtcNow;
+            trigger.Status = TriggerStatus.Pending;
+            trigger.CompletedUtc = null;
+            trigger.NextAttemptUtc = nextAttemptUtc ?? now;
+            if (resetAttemptCount)
+            {
+                trigger.AttemptCount = 0;
+            }
+
+            trigger.LastError = "requeued after failure";
+            trigger.DateModified = now;
+            trigger.ChangedBy = string.IsNullOrWhiteSpace(changedBy) ? "operator" : changedBy;
+            _working.Remove(triggerId);
+            return Task.FromResult(Clone(trigger));
+        }
+    }
+
     public Task MarkCompensationAsync(Guid triggerId, string error, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();

@@ -15,9 +15,11 @@ public class TriggerStatusTransitionsTests
     [InlineData(TriggerStatus.Running, TriggerStatus.Compensation, true)]
     [InlineData(TriggerStatus.Retry, TriggerStatus.Pending, true)]
     [InlineData(TriggerStatus.Failed, TriggerStatus.Compensation, true)]
+    [InlineData(TriggerStatus.Failed, TriggerStatus.Pending, true)]
     [InlineData(TriggerStatus.Pending, TriggerStatus.Completed, false)]
     [InlineData(TriggerStatus.Completed, TriggerStatus.Running, false)]
     [InlineData(TriggerStatus.Claimed, TriggerStatus.Pending, false)]
+    [InlineData(TriggerStatus.Compensation, TriggerStatus.Pending, false)]
     public void CanTransition_enforces_lifecycle(TriggerStatus from, TriggerStatus to, bool expected)
     {
         TriggerStatusTransitions.CanTransition(from, to).Should().Be(expected);
