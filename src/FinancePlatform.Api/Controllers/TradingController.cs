@@ -1,6 +1,7 @@
 using FinancePlatform.Api.Contracts;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Portfolio;
 using FinancePlatform.Services.Workflows;
@@ -13,6 +14,8 @@ namespace FinancePlatform.Api.Controllers;
 [Tags("Trading")]
 public sealed class TradingController(
     ICustomerService customerService,
+    ICustomerDirectory customerDirectory,
+    IInvestmentInstructionStore instructionStore,
     IWorkflowEnqueueService workflowsService,
     IOrderService orderService,
     IPortfolioService portfolioService) : ControllerBase
@@ -29,11 +32,15 @@ public sealed class TradingController(
             return NotFound();
         }
 
-        var portfolio = portfolioService.GetPortfolio(
-            customer.TradingAccount.Id,
-            customer.TradingAccount.Currency);
+        var tradingAccount = customer.TradingAccount;
+        var pendingInstructions = instructionStore.GetPendingCashAmount(tradingAccount.Id);
+        var available = customerDirectory.GetTradingAvailable(tradingAccount.Id, pendingInstructions);
 
-        var cash = CustomerMapper.ToTradingAccountBalance(customer.TradingAccount);
+        var portfolio = portfolioService.GetPortfolio(
+            tradingAccount.Id,
+            tradingAccount.Currency);
+
+        var cash = CustomerMapper.ToTradingAccountBalance(tradingAccount, available);
         var positions = portfolio.Positions
             .Select(p => new PositionResponse(
                 p.AssetSymbol,
@@ -62,10 +69,13 @@ public sealed class TradingController(
             return NotFound();
         }
 
+        var tradingAccount = customer.TradingAccount;
+        var pendingInstructions = instructionStore.GetPendingCashAmount(tradingAccount.Id);
+        var cashAvailable = customerDirectory.GetTradingAvailable(tradingAccount.Id, pendingInstructions);
+
         var portfolio = portfolioService.GetPortfolio(
-            customer.TradingAccount.Id,
-            customer.TradingAccount.Currency);
-        var cashAvailable = customer.TradingAccount.Available;
+            tradingAccount.Id,
+            tradingAccount.Currency);
 
         return Ok(new PortfolioResponse(
             portfolio.TradingAccountId,
@@ -123,7 +133,11 @@ public sealed class TradingController(
             return NotFound();
         }
 
-        var history = orderService.GetByAccount(customer.TradingAccount.Id)
+        var tradingAccount = customer.TradingAccount;
+        var positionAccountId = customerDirectory.FindInvestmentAccountByTradingAccount(tradingAccount.Id)?.Id
+            ?? tradingAccount.Id;
+
+        var history = orderService.GetByAccount(positionAccountId)
             .Select(o => new TradeHistoryItemResponse(
                 o.Id,
                 o.AccountId,
@@ -167,7 +181,7 @@ public sealed class TradingController(
             return BadRequest("Trading account does not belong to this customer.");
         }
 
-        var trigger = await workflowsService.EnqueueBuyAsync(new BuyWorkflowCommand
+        await workflowsService.EnqueueBuyAsync(new BuyWorkflowCommand
         {
             AccountId = tradingAccountId,
             AssetSymbol = body.AssetSymbol,
@@ -177,9 +191,7 @@ public sealed class TradingController(
             ExternalType = ExternalEntityType.TradingAccount
         }, ct);
 
-        return Accepted(
-            $"/api/workflows/triggers/{trigger.Id}",
-            new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
+        return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }
 
     [HttpPost("sells")]
@@ -206,7 +218,7 @@ public sealed class TradingController(
             return BadRequest("Trading account does not belong to this customer.");
         }
 
-        var trigger = await workflowsService.EnqueueSellAsync(new SellWorkflowCommand
+        await workflowsService.EnqueueSellAsync(new SellWorkflowCommand
         {
             AccountId = tradingAccountId,
             AssetSymbol = body.AssetSymbol,
@@ -216,9 +228,7 @@ public sealed class TradingController(
             ExternalType = ExternalEntityType.TradingAccount
         }, ct);
 
-        return Accepted(
-            $"/api/workflows/triggers/{trigger.Id}",
-            new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
+        return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }
 
     [HttpPost("transfer-to-customer")]
@@ -249,7 +259,7 @@ public sealed class TradingController(
             return BadRequest("Account ids do not belong to this customer.");
         }
 
-        var trigger = await workflowsService.EnqueueTradingTransferToCustomerAsync(
+        await workflowsService.EnqueueTradingTransferToCustomerAsync(
             new TradingTransferToCustomerWorkflowCommand
             {
                 CustomerId = customerId,
@@ -257,13 +267,10 @@ public sealed class TradingController(
                 CustomerAccountId = customerAccountId,
                 Amount = body.Amount,
                 Currency = body.Currency ?? customer.TradingAccount.Currency,
-                IdempotencyKey = body.IdempotencyKey,
-                RootWorkflowId = body.RootWorkflowId
+                IdempotencyKey = body.PaymentReference
             },
             ct);
 
-        return Accepted(
-            $"/api/workflows/triggers/{trigger.Id}",
-            new WorkflowAcceptedResponse(trigger.Id, trigger.RootWorkflowId, trigger.TriggerCode, trigger.QueueName));
+        return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }
 }

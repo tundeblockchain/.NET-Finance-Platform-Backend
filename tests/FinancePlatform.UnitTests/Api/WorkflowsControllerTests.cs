@@ -26,7 +26,14 @@ public class WorkflowsControllerTests
 
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
         var body = accepted.Value.Should().BeOfType<WorkflowAcceptedResponse>().Subject;
-        body.TriggerCode.Should().Be(TriggerCodes.BuyAsset);
-        body.QueueName.Should().Be(QueueNames.Trading);
+        body.Message.Should().Be(WorkflowAcceptedResponse.RequestWillBeProcessed.Message);
+
+        await workflows.Received(1).EnqueueBuyAsync(
+            Arg.Is<BuyWorkflowCommand>(c =>
+                c.AccountId == accountId
+                && c.AssetSymbol == "VWRL"
+                && c.Quantity == 1m
+                && c.IdempotencyKey.StartsWith("buy-")),
+            Arg.Any<CancellationToken>());
     }
 }

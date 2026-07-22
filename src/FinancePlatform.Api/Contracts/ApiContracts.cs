@@ -17,18 +17,15 @@ public sealed record AddressHttpRequest(
 
 public sealed record CustomerDepositHttpRequest(
     decimal Amount,
-    string IdempotencyKey,
+    string PaymentReference,
     Guid? CustomerAccountId = null,
-    string? Currency = null,
-    Guid? RootWorkflowId = null);
+    string? Currency = null);
 
 public sealed record CustomerDistributeHttpRequest(
     decimal Amount,
-    string IdempotencyKey,
     Guid? CustomerAccountId = null,
     Guid? TradingAccountId = null,
-    string? Currency = null,
-    Guid? RootWorkflowId = null);
+    string? Currency = null);
 
 public sealed record CustomerResponse(
     int Id,
@@ -59,11 +56,10 @@ public sealed record AccountBalanceResponse(
 public sealed record DepositRequest(
     Guid AccountId,
     decimal Amount,
-    string IdempotencyKey,
+    string PaymentReference,
     string? Currency = null,
     string? AssetSymbol = null,
-    decimal Quantity = 1m,
-    Guid? RootWorkflowId = null);
+    decimal Quantity = 1m);
 
 public sealed record BuyRequest(
     Guid AccountId,
@@ -87,11 +83,10 @@ public sealed record TradingOrderRequest(
 
 public sealed record TradingTransferToCustomerHttpRequest(
     decimal Amount,
-    string IdempotencyKey,
+    string PaymentReference,
     Guid? TradingAccountId = null,
     Guid? CustomerAccountId = null,
-    string? Currency = null,
-    Guid? RootWorkflowId = null);
+    string? Currency = null);
 
 public sealed record TradingFundsResponse(
     AccountBalanceResponse Cash,
@@ -129,8 +124,8 @@ public sealed record TradeHistoryItemResponse(
     DateTimeOffset? SubmittedUtc,
     DateTimeOffset? FilledUtc);
 
-public sealed record WorkflowAcceptedResponse(
-    Guid TriggerId,
-    Guid RootWorkflowId,
-    int TriggerCode,
-    string QueueName);
+public sealed record WorkflowAcceptedResponse(string Message)
+{
+    public static WorkflowAcceptedResponse RequestWillBeProcessed { get; } =
+        new("Your request has been accepted and will be processed.");
+}

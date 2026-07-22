@@ -101,8 +101,7 @@ public class CustomersControllerTests
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
         accepted.StatusCode.Should().Be(202);
         var body = accepted.Value.Should().BeOfType<WorkflowAcceptedResponse>().Subject;
-        body.TriggerCode.Should().Be(TriggerCodes.CustomerDepositMoney);
-        body.QueueName.Should().Be(QueueNames.Customer);
+        body.Message.Should().Be(WorkflowAcceptedResponse.RequestWillBeProcessed.Message);
 
         await workflows.Received(1).EnqueueCustomerDepositAsync(
             Arg.Is<CustomerDepositWorkflowCommand>(c =>
@@ -129,19 +128,20 @@ public class CustomersControllerTests
 
         var result = await controller.TransferFundsToTrading(
             1,
-            new CustomerDistributeHttpRequest(200m, "xfer-1"),
+            new CustomerDistributeHttpRequest(200m),
             CancellationToken.None);
 
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
         var body = accepted.Value.Should().BeOfType<WorkflowAcceptedResponse>().Subject;
-        body.TriggerCode.Should().Be(TriggerCodes.CustomerDistributeMoney);
+        body.Message.Should().Be(WorkflowAcceptedResponse.RequestWillBeProcessed.Message);
 
         await workflows.Received(1).EnqueueCustomerDistributeAsync(
             Arg.Is<CustomerDistributeWorkflowCommand>(c =>
                 c.CustomerId == 1
                 && c.CustomerAccountId == provisioned.CustomerAccount.Id
                 && c.TradingAccountId == provisioned.TradingAccount.Id
-                && c.Amount == 200m),
+                && c.Amount == 200m
+                && c.IdempotencyKey.StartsWith("xfer-to-trading:")),
             Arg.Any<CancellationToken>());
     }
 }

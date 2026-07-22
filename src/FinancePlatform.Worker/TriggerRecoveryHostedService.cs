@@ -14,7 +14,7 @@ public sealed class TriggerRecoveryHostedService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var pollMs = Math.Max(200, options.Value.RecoveryPollIntervalMilliseconds);
-        logger.LogInformation("Trigger recovery scanner started (poll={PollMs}ms)", pollMs);
+        logger.LogDebug("Trigger recovery scanner started (poll={PollMs}ms)", pollMs);
 
         while (!stoppingToken.IsCancellationRequested)
         {

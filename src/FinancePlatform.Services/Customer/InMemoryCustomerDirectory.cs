@@ -20,6 +20,8 @@ public sealed class InMemoryCustomerDirectory : ICustomerDirectory
     private readonly Dictionary<(int CustomerId, string Currency), Guid> _customerAccountIndex = new();
     private readonly Dictionary<Guid, TradingAccount> _tradingAccounts = new();
     private readonly Dictionary<(int CustomerId, string Currency), Guid> _tradingAccountIndex = new();
+    private readonly Dictionary<Guid, InvestmentAccount> _investmentAccounts = new();
+    private readonly Dictionary<Guid, Guid> _investmentByTradingAccount = new();
     private readonly Dictionary<Guid, DistributionAgreement> _agreements = new();
     private readonly Dictionary<Guid, List<DistributionElement>> _elementsByAgreement = new();
     private readonly ConcurrentDictionary<string, byte> _mutationKeys = new(StringComparer.Ordinal);
@@ -157,6 +159,102 @@ public sealed class InMemoryCustomerDirectory : ICustomerDirectory
             var agreement = _agreements.Values.FirstOrDefault(a =>
                 a.OwnerAccountId == ownerAccountId && a.IsActive);
             return agreement is null ? null : Clone(agreement);
+        }
+    }
+
+    public InvestmentAccount EnsureInvestmentAccount(int customerId, Guid tradingAccountId, string currency)
+    {
+        lock (_gate)
+        {
+            if (_investmentByTradingAccount.TryGetValue(tradingAccountId, out var existingId)
+                && _investmentAccounts.TryGetValue(existingId, out var existing))
+            {
+                return Clone(existing);
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var account = new InvestmentAccount
+            {
+                Id = Guid.NewGuid(),
+                CustomerId = customerId,
+                TradingAccountId = tradingAccountId,
+                Currency = currency.ToUpperInvariant(),
+                Settled = 0m,
+                Reserved = 0m,
+                CreatedUtc = now,
+                DateModified = now,
+                ChangedBy = ChangeActors.System
+            };
+            _investmentAccounts[account.Id] = account;
+            _investmentByTradingAccount[tradingAccountId] = account.Id;
+            return Clone(account);
+        }
+    }
+
+    public InvestmentAccount? FindInvestmentAccount(Guid investmentAccountId)
+    {
+        lock (_gate)
+        {
+            return _investmentAccounts.TryGetValue(investmentAccountId, out var account) ? Clone(account) : null;
+        }
+    }
+
+    public InvestmentAccount? FindInvestmentAccountByTradingAccount(Guid tradingAccountId)
+    {
+        lock (_gate)
+        {
+            if (_investmentByTradingAccount.TryGetValue(tradingAccountId, out var id)
+                && _investmentAccounts.TryGetValue(id, out var account))
+            {
+                return Clone(account);
+            }
+
+            return null;
+        }
+    }
+
+    public DistributionAgreement EnsureTradingToInvestmentDistribution(
+        int customerId,
+        Guid tradingAccountId,
+        Guid investmentAccountId)
+    {
+        lock (_gate)
+        {
+            var existing = _agreements.Values.FirstOrDefault(a =>
+                a.OwnerAccountId == tradingAccountId && a.IsActive);
+            if (existing is not null)
+            {
+                return Clone(existing);
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var agreement = new DistributionAgreement
+            {
+                Id = Guid.NewGuid(),
+                CustomerId = customerId,
+                OwnerComponent = ComponentType.Trading,
+                OwnerAccountId = tradingAccountId,
+                Name = "Trading → Investment",
+                IsActive = true,
+                CreatedUtc = now,
+                DateModified = now,
+                ChangedBy = ChangeActors.System
+            };
+            _agreements[agreement.Id] = agreement;
+
+            var element = new DistributionElement
+            {
+                Id = Guid.NewGuid(),
+                AgreementId = agreement.Id,
+                TargetType = DistributionTargetType.InvestmentAccount,
+                TargetAccountId = investmentAccountId,
+                Percentage = 1m,
+                Priority = 1,
+                DateModified = now,
+                ChangedBy = ChangeActors.System
+            };
+            _elementsByAgreement[agreement.Id] = [element];
+            return Clone(agreement);
         }
     }
 
@@ -340,6 +438,87 @@ public sealed class InMemoryCustomerDirectory : ICustomerDirectory
         }
     }
 
+    public bool TryCreditInvestmentAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey)
+    {
+        if (amount <= 0)
+        {
+            return false;
+        }
+
+        if (!_mutationKeys.TryAdd(idempotencyKey, 0))
+        {
+            return true;
+        }
+
+        lock (_gate)
+        {
+            if (!_investmentAccounts.TryGetValue(accountId, out var account))
+            {
+                _mutationKeys.TryRemove(idempotencyKey, out _);
+                return false;
+            }
+
+            account.Settled += amount;
+            account.DateModified = DateTimeOffset.UtcNow;
+            account.ChangedBy = ChangeActors.Broker;
+            return true;
+        }
+    }
+
+    public bool TryDebitInvestmentAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey)
+    {
+        if (amount <= 0)
+        {
+            return false;
+        }
+
+        if (!_mutationKeys.TryAdd(idempotencyKey, 0))
+        {
+            return true;
+        }
+
+        lock (_gate)
+        {
+            if (!_investmentAccounts.TryGetValue(accountId, out var account)
+                || account.Available < amount)
+            {
+                _mutationKeys.TryRemove(idempotencyKey, out _);
+                return false;
+            }
+
+            account.Settled -= amount;
+            account.DateModified = DateTimeOffset.UtcNow;
+            account.ChangedBy = ChangeActors.Broker;
+            return true;
+        }
+    }
+
+    public decimal GetTradingAvailable(Guid tradingAccountId, decimal pendingInstructionCash)
+    {
+        lock (_gate)
+        {
+            if (!_tradingAccounts.TryGetValue(tradingAccountId, out var trading))
+            {
+                return 0m;
+            }
+
+            var investmentSettled = _investmentByTradingAccount.TryGetValue(tradingAccountId, out var investmentId)
+                && _investmentAccounts.TryGetValue(investmentId, out var investment)
+                ? investment.Settled
+                : 0m;
+
+            return trading.Settled + investmentSettled + pendingInstructionCash;
+        }
+    }
+
+    public decimal GetInvestmentSettled(Guid investmentAccountId)
+    {
+        lock (_gate)
+        {
+            return _investmentAccounts.TryGetValue(investmentAccountId, out var account) ? account.Settled : 0m;
+        }
+    }
+
     public decimal GetTradingSettled(Guid accountId)
     {
         lock (_gate)
@@ -377,6 +556,22 @@ public sealed class InMemoryCustomerDirectory : ICustomerDirectory
     {
         Id = a.Id,
         CustomerId = a.CustomerId,
+        Currency = a.Currency,
+        Settled = a.Settled,
+        Reserved = a.Reserved,
+        IsLocked = a.IsLocked,
+        LockedByTriggerId = a.LockedByTriggerId,
+        LockExpiresUtc = a.LockExpiresUtc,
+        CreatedUtc = a.CreatedUtc,
+        DateModified = a.DateModified,
+        ChangedBy = a.ChangedBy
+    };
+
+    private static InvestmentAccount Clone(InvestmentAccount a) => new()
+    {
+        Id = a.Id,
+        CustomerId = a.CustomerId,
+        TradingAccountId = a.TradingAccountId,
         Currency = a.Currency,
         Settled = a.Settled,
         Reserved = a.Reserved,

@@ -62,4 +62,28 @@ public sealed class DistributionAgreementRepository(IDbConnectionFactory connect
                 commandType: CommandType.StoredProcedure,
                 cancellationToken: cancellationToken));
     }
+
+    public async Task<DistributionAgreement> EnsureTradingToInvestmentAsync(
+        int customerId,
+        Guid tradingAccountId,
+        Guid investmentAccountId,
+        string changedBy,
+        CancellationToken cancellationToken = default)
+    {
+        await using var connection = connectionFactory.CreateConnection();
+        await connection.OpenAsync(cancellationToken);
+
+        return await connection.QuerySingleAsync<DistributionAgreement>(
+            new CommandDefinition(
+                "EnsureTradingToInvestmentDistribution",
+                new
+                {
+                    CustomerId = customerId,
+                    TradingAccountId = tradingAccountId,
+                    InvestmentAccountId = investmentAccountId,
+                    ChangedBy = changedBy
+                },
+                commandType: CommandType.StoredProcedure,
+                cancellationToken: cancellationToken));
+    }
 }

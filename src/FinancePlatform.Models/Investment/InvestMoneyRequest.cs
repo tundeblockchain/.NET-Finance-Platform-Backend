@@ -5,6 +5,14 @@ namespace FinancePlatform.Models.Investment;
 /// </summary>
 public sealed class InvestMoneyRequest
 {
+    public Guid InstructionId { get; set; }
+
+    public int CustomerId { get; set; }
+
+    public Guid TradingAccountId { get; set; }
+
+    public Guid InvestmentAccountId { get; set; }
+
     public decimal Amount { get; set; }
 
     public decimal CashAmount { get; set; }

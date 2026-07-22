@@ -27,7 +27,13 @@ public sealed class TriggerHeartbeatService(
             return;
         }
 
-        var logInterval = TimeSpan.FromSeconds(Math.Max(1, recoveryOptions.Value.QueueHeartbeatLogIntervalSeconds));
+        var configuredSeconds = recoveryOptions.Value.QueueHeartbeatLogIntervalSeconds;
+        if (configuredSeconds <= 0)
+        {
+            return;
+        }
+
+        var logInterval = TimeSpan.FromSeconds(configuredSeconds);
         var now = timeProvider.GetUtcNow();
         if (_lastLogUtcByQueue.TryGetValue(queueName, out var lastLogUtc)
             && now - lastLogUtc < logInterval)

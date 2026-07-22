@@ -42,4 +42,8 @@ builder.Services.AddHostedService<TriggerRecoveryHostedService>();
 builder.Services.AddHostedService<SampleWorkflowHostedService>();
 
 var host = builder.Build();
+
+var logger = host.Services.GetRequiredService<ILoggerFactory>().CreateLogger("FinancePlatform.Worker");
+logger.LogInformation("Server Broker started");
+
 host.Run();

@@ -22,6 +22,8 @@ public static class SqlObjectNames
         "CustomerAddress",
         "CustomerAccount",
         "TradingAccount",
+        "InvestmentAccount",
+        "InvestmentInstruction",
         "DistributionAgreement",
         "DistributionElement"
     ];

@@ -22,6 +22,7 @@ internal sealed record TriggerExecutionTestHarness(
     InMemoryCashService Cash,
     ICustomerDirectory Directory,
     ICustomerService Customer,
+    IInvestmentInstructionStore Instructions,
     ITradeService Trading,
     IPositionService Positions,
     IOrderService Orders,
@@ -36,10 +37,11 @@ internal sealed record TriggerExecutionTestHarness(
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
         var directory = new InMemoryCustomerDirectory();
+        var instructions = new InMemoryInvestmentInstructionStore();
         var allocation = new AllocationService();
         var trade = TradeServiceTestFactory.Create(cash, ledger, orders, positions, directory);
         var customer = new CustomerService(directory);
-        var investment = new InvestmentService();
+        var investment = new InvestmentService(directory, instructions, orders, cash);
         var asset = new AssetService(trade, allocation);
         var cashComponent = new CashComponentService(cash, ledger);
 
@@ -72,6 +74,30 @@ internal sealed record TriggerExecutionTestHarness(
             NullLogger<TriggerExecutionService>.Instance);
 
         return new TriggerExecutionTestHarness(
-            store, registry, cash, directory, customer, trade, positions, orders, execution);
+            store, registry, cash, directory, customer, instructions, trade, positions, orders, execution);
+    }
+
+    public async Task DrainQueuesAsync(params string[] queueNames)
+    {
+        for (var pass = 0; pass < 20; pass++)
+        {
+            var processed = false;
+            foreach (var queue in queueNames)
+            {
+                var claimed = await Store.TryClaimAsync(queue, $"worker-{pass}", TimeSpan.FromSeconds(30));
+                if (claimed is null)
+                {
+                    continue;
+                }
+
+                processed = true;
+                await Execution.ExecuteAsync(claimed);
+            }
+
+            if (!processed)
+            {
+                break;
+            }
+        }
     }
 }

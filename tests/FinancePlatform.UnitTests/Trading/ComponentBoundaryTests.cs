@@ -1,11 +1,9 @@
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
-using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
-using FinancePlatform.Services.Trade;
 using FinancePlatform.UnitTests.Support;
 using FluentAssertions;
 

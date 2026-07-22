@@ -62,26 +62,32 @@ public static class TriggerEngineServiceCollectionExtensions
     private static IServiceCollection AddTriggerEngineCore(IServiceCollection services, bool useSqlServer)
     {
         // Supporting / primitive services
-        services.AddSingleton<ICashService, InMemoryCashService>();
-        services.AddSingleton<ILedgerService, InMemoryLedgerService>();
-        services.AddSingleton<IPositionService, InMemoryPositionService>();
-        services.AddSingleton<IOrderService, InMemoryOrderService>();
-
         if (useSqlServer)
         {
+            services.AddSingleton<ICashService, SqlCashService>();
+            services.AddSingleton<ILedgerService, SqlLedgerService>();
+            services.AddSingleton<IPositionService, SqlPositionService>();
+            services.AddSingleton<IOrderService, SqlOrderService>();
+            services.AddSingleton<IAllocationService, SqlAllocationService>();
             services.AddSingleton<IAssetPriceService, SqlAssetPriceService>();
             services.AddSingleton<ICustomerDirectory, SqlCustomerDirectory>();
+            services.AddSingleton<IInvestmentInstructionStore, SqlInvestmentInstructionStore>();
         }
         else
         {
+            services.AddSingleton<ICashService, InMemoryCashService>();
+            services.AddSingleton<ILedgerService, InMemoryLedgerService>();
+            services.AddSingleton<IPositionService, InMemoryPositionService>();
+            services.AddSingleton<IOrderService, InMemoryOrderService>();
+            services.AddSingleton<IAllocationService, AllocationService>();
             services.AddSingleton<IAssetPriceService, InMemoryAssetPriceService>();
             services.AddSingleton<ICustomerDirectory, InMemoryCustomerDirectory>();
+            services.AddSingleton<IInvestmentInstructionStore, InMemoryInvestmentInstructionStore>();
         }
 
         services.AddSingleton<IPortfolioService, PortfolioService>();
 
         // Main component services (EP → Service → Models)
-        services.AddSingleton<IAllocationService, AllocationService>();
         services.AddSingleton<ICashComponentService, CashComponentService>();
         services.AddSingleton<ICustomerService, CustomerService>();
         services.AddSingleton<ITradeService, TradeService>();

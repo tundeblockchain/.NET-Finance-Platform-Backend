@@ -42,7 +42,7 @@ BEGIN
 
     IF @Id IS NOT NULL
     BEGIN
-        SELECT * FROM dbo.[Order] WHERE Id = @Id;
+        SELECT *, CAST(1 AS BIT) AS AlreadyApplied FROM dbo.[Order] WHERE Id = @Id;
         COMMIT TRAN;
         RETURN;
     END
@@ -58,7 +58,7 @@ BEGIN
         @FillPrice, @ExternalOrderId, @Provider, 3, /* Filled */ @IdempotencyKey, @Now, @Now,
         COALESCE(@FilledUtc, @Now), @Now, @ChangedBy);
 
-    SELECT * FROM dbo.[Order] WHERE Id = @Id;
+    SELECT *, CAST(0 AS BIT) AS AlreadyApplied FROM dbo.[Order] WHERE Id = @Id;
     COMMIT TRAN;
 END
 GO

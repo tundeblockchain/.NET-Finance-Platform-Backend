@@ -4,6 +4,7 @@ using FinancePlatform.Models.Entities;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Customer;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Portfolio;
 using FinancePlatform.Services.Workflows;
@@ -35,6 +36,10 @@ public class TradingControllerTests
         var customers = Substitute.For<ICustomerService>();
         customers.GetCustomer(1).Returns(provisioned);
 
+        var directory = Substitute.For<ICustomerDirectory>();
+        directory.GetTradingAvailable(provisioned.TradingAccount.Id, Arg.Any<decimal>())
+            .Returns(400m);
+
         var portfolio = Substitute.For<IPortfolioService>();
         portfolio.GetPortfolio(provisioned.TradingAccount.Id, provisioned.TradingAccount.Currency)
             .Returns(new PortfolioSnapshot(
@@ -48,7 +53,7 @@ public class TradingControllerTests
                     new PortfolioPositionLine("VWRL", 3m, 75m, 225m, DateTimeOffset.UtcNow, "TradeFill", "Simulated")
                 ]));
 
-        var controller = CreateController(customers, portfolioService: portfolio);
+        var controller = CreateController(customers, portfolioService: portfolio, customerDirectory: directory);
 
         var result = controller.GetFunds(1);
 
@@ -141,7 +146,7 @@ public class TradingControllerTests
 
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
         var body = accepted.Value.Should().BeOfType<WorkflowAcceptedResponse>().Subject;
-        body.TriggerCode.Should().Be(TriggerCodes.BuyAsset);
+        body.Message.Should().Be(WorkflowAcceptedResponse.RequestWillBeProcessed.Message);
 
         await workflows.Received(1).EnqueueBuyAsync(
             Arg.Is<BuyWorkflowCommand>(c =>
@@ -203,7 +208,7 @@ public class TradingControllerTests
 
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
         var body = accepted.Value.Should().BeOfType<WorkflowAcceptedResponse>().Subject;
-        body.TriggerCode.Should().Be(TriggerCodes.TradingTransferToCustomer);
+        body.Message.Should().Be(WorkflowAcceptedResponse.RequestWillBeProcessed.Message);
 
         await workflows.Received(1).EnqueueTradingTransferToCustomerAsync(
             Arg.Is<TradingTransferToCustomerWorkflowCommand>(c =>
@@ -218,9 +223,13 @@ public class TradingControllerTests
         ICustomerService customers,
         IWorkflowEnqueueService? workflows = null,
         IOrderService? orderService = null,
-        IPortfolioService? portfolioService = null) =>
+        IPortfolioService? portfolioService = null,
+        ICustomerDirectory? customerDirectory = null,
+        IInvestmentInstructionStore? instructionStore = null) =>
         new(
             customers,
+            customerDirectory ?? Substitute.For<ICustomerDirectory>(),
+            instructionStore ?? Substitute.For<IInvestmentInstructionStore>(),
             workflows ?? Substitute.For<IWorkflowEnqueueService>(),
             orderService ?? Substitute.For<IOrderService>(),
             portfolioService ?? CreateEmptyPortfolioService());

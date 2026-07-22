@@ -14,6 +14,17 @@ public interface ICustomerDirectory
 
     DistributionAgreement? FindAgreementByOwnerAccount(Guid ownerAccountId);
 
+    InvestmentAccount EnsureInvestmentAccount(int customerId, Guid tradingAccountId, string currency);
+
+    InvestmentAccount? FindInvestmentAccount(Guid investmentAccountId);
+
+    InvestmentAccount? FindInvestmentAccountByTradingAccount(Guid tradingAccountId);
+
+    DistributionAgreement EnsureTradingToInvestmentDistribution(
+        int customerId,
+        Guid tradingAccountId,
+        Guid investmentAccountId);
+
     CustomerAccount? FindCustomerAccount(Guid customerAccountId);
 
     CustomerAccount? FindCustomerAccountByCustomer(int customerId, string currency);
@@ -32,7 +43,15 @@ public interface ICustomerDirectory
 
     bool TryDebitTradingAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey);
 
+    bool TryCreditInvestmentAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey);
+
+    bool TryDebitInvestmentAccount(Guid accountId, decimal amount, Guid triggerId, string idempotencyKey);
+
     decimal GetCustomerSettled(Guid accountId);
 
     decimal GetTradingSettled(Guid accountId);
+
+    decimal GetTradingAvailable(Guid tradingAccountId, decimal pendingInstructionCash);
+
+    decimal GetInvestmentSettled(Guid investmentAccountId);
 }
