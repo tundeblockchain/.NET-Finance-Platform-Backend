@@ -20,6 +20,12 @@ public sealed class Order : IAuditableEntity
 
     public decimal? LimitPrice { get; set; }
 
+    public decimal? FillPrice { get; set; }
+
+    public string? ExternalOrderId { get; set; }
+
+    public string? Provider { get; set; }
+
     public OrderStatus Status { get; set; } = OrderStatus.Created;
 
     public required string IdempotencyKey { get; set; }
@@ -27,6 +33,8 @@ public sealed class Order : IAuditableEntity
     public DateTimeOffset CreatedUtc { get; set; }
 
     public DateTimeOffset? SubmittedUtc { get; set; }
+
+    public DateTimeOffset? FilledUtc { get; set; }
 
     public DateTimeOffset DateModified { get; set; }
 

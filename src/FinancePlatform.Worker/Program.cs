@@ -1,8 +1,11 @@
 using FinancePlatform.Services;
+using FinancePlatform.Services.Configuration;
 using FinancePlatform.Services.Triggers;
 using FinancePlatform.Worker;
 using FinancePlatform.Worker.EventProcessors;
 using Microsoft.Extensions.Options;
+
+EnvFileLoader.Load();
 
 var builder = Host.CreateApplicationBuilder(args);
 

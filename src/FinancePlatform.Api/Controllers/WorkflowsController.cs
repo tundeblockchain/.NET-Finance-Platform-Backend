@@ -46,10 +46,8 @@ public sealed class WorkflowsController(IWorkflowEnqueueService workflowsService
             AccountId = body.AccountId,
             AssetSymbol = body.AssetSymbol,
             Quantity = body.Quantity,
-            CashAmount = body.CashAmount,
             Currency = body.Currency ?? "GBP",
-            IdempotencyKey = body.IdempotencyKey,
-            RootWorkflowId = body.RootWorkflowId,
+            IdempotencyKey = IdempotencyKeys.ForTrade("buy"),
             AllocationRequestId = body.AllocationRequestId
         }, ct);
 
@@ -71,10 +69,8 @@ public sealed class WorkflowsController(IWorkflowEnqueueService workflowsService
             AccountId = body.AccountId,
             AssetSymbol = body.AssetSymbol,
             Quantity = body.Quantity,
-            CashAmount = body.CashAmount,
             Currency = body.Currency ?? "GBP",
-            IdempotencyKey = body.IdempotencyKey,
-            RootWorkflowId = body.RootWorkflowId,
+            IdempotencyKey = IdempotencyKeys.ForTrade("sell"),
             AllocationRequestId = body.AllocationRequestId
         }, ct);
 

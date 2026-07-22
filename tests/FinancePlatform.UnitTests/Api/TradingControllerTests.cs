@@ -5,7 +5,7 @@ using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Orders;
-using FinancePlatform.Services.Positions;
+using FinancePlatform.Services.Portfolio;
 using FinancePlatform.Services.Workflows;
 using FinancePlatform.UnitTests.Api.Support;
 using FluentAssertions;
@@ -35,18 +35,29 @@ public class TradingControllerTests
         var customers = Substitute.For<ICustomerService>();
         customers.GetCustomer(1).Returns(provisioned);
 
-        var positions = Substitute.For<IPositionService>();
-        positions.GetByAccount(provisioned.TradingAccount.Id)
-            .Returns([new PositionHolding(provisioned.TradingAccount.Id, "VWRL", 3m)]);
+        var portfolio = Substitute.For<IPortfolioService>();
+        portfolio.GetPortfolio(provisioned.TradingAccount.Id, provisioned.TradingAccount.Currency)
+            .Returns(new PortfolioSnapshot(
+                provisioned.TradingAccount.Id,
+                provisioned.TradingAccount.Currency,
+                CashAvailable: 400m,
+                PositionsMarketValue: 225m,
+                TotalEquity: 625m,
+                Positions:
+                [
+                    new PortfolioPositionLine("VWRL", 3m, 75m, 225m, DateTimeOffset.UtcNow, "TradeFill", "Simulated")
+                ]));
 
-        var controller = CreateController(customers, positionService: positions);
+        var controller = CreateController(customers, portfolioService: portfolio);
 
         var result = controller.GetFunds(1);
 
         var ok = result.Result.Should().BeOfType<OkObjectResult>().Subject;
         var body = ok.Value.Should().BeOfType<TradingFundsResponse>().Subject;
         body.Cash.Settled.Should().Be(400m);
-        body.Positions.Should().ContainSingle(p => p.AssetSymbol == "VWRL" && p.Quantity == 3m);
+        body.PositionsMarketValue.Should().Be(225m);
+        body.TotalEquity.Should().Be(body.Cash.Available + 225m);
+        body.Positions.Should().ContainSingle(p => p.AssetSymbol == "VWRL" && p.Quantity == 3m && p.LastPrice == 75m);
     }
 
     [Fact]
@@ -68,10 +79,14 @@ public class TradingControllerTests
                 AssetSymbol = "VWRL",
                 Side = OrderSide.Buy,
                 Quantity = 2m,
+                FillPrice = 75m,
+                Provider = "Simulated",
+                ExternalOrderId = "sim-buy-1:order",
                 Status = OrderStatus.Filled,
                 IdempotencyKey = "buy-1:order",
                 CreatedUtc = now,
                 SubmittedUtc = now,
+                FilledUtc = now,
                 DateModified = now
             }
         ]);
@@ -82,7 +97,12 @@ public class TradingControllerTests
 
         var ok = result.Result.Should().BeOfType<OkObjectResult>().Subject;
         var body = ok.Value.Should().BeAssignableTo<IReadOnlyList<TradeHistoryItemResponse>>().Subject;
-        body.Should().ContainSingle(h => h.AssetSymbol == "VWRL" && h.Side == "Buy" && h.Quantity == 2m);
+        body.Should().ContainSingle(h =>
+            h.AssetSymbol == "VWRL"
+            && h.Side == "Buy"
+            && h.Quantity == 2m
+            && h.FillPrice == 75m
+            && h.Provider == "Simulated");
     }
 
     [Fact]
@@ -95,7 +115,7 @@ public class TradingControllerTests
 
         var result = await controller.Buy(
             1,
-            new TradingOrderRequest("VWRL", 1m, 50m, "buy-1", TradingAccountId: Guid.NewGuid()),
+            new TradingOrderRequest("VWRL", 1m, TradingAccountId: Guid.NewGuid()),
             CancellationToken.None);
 
         result.Result.Should().BeOfType<BadRequestObjectResult>();
@@ -116,7 +136,7 @@ public class TradingControllerTests
 
         var result = await controller.Buy(
             1,
-            new TradingOrderRequest("VWRL", 2m, 150m, "buy-1"),
+            new TradingOrderRequest("VWRL", 2m),
             CancellationToken.None);
 
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;
@@ -128,8 +148,8 @@ public class TradingControllerTests
                 c.AccountId == provisioned.TradingAccount.Id
                 && c.AssetSymbol == "VWRL"
                 && c.Quantity == 2m
-                && c.CashAmount == 150m
-                && c.ExternalType == ExternalEntityType.TradingAccount),
+                && c.ExternalType == ExternalEntityType.TradingAccount
+                && c.IdempotencyKey.StartsWith("buy-")),
             Arg.Any<CancellationToken>());
     }
 
@@ -148,14 +168,15 @@ public class TradingControllerTests
 
         var result = await controller.Sell(
             1,
-            new TradingOrderRequest("VWRL", 1m, 75m, "sell-1"),
+            new TradingOrderRequest("VWRL", 1m),
             CancellationToken.None);
 
         result.Result.Should().BeOfType<AcceptedResult>();
         await workflows.Received(1).EnqueueSellAsync(
             Arg.Is<SellWorkflowCommand>(c =>
                 c.AccountId == provisioned.TradingAccount.Id
-                && c.ExternalType == ExternalEntityType.TradingAccount),
+                && c.ExternalType == ExternalEntityType.TradingAccount
+                && c.IdempotencyKey.StartsWith("sell-")),
             Arg.Any<CancellationToken>());
     }
 
@@ -197,10 +218,24 @@ public class TradingControllerTests
         ICustomerService customers,
         IWorkflowEnqueueService? workflows = null,
         IOrderService? orderService = null,
-        IPositionService? positionService = null) =>
+        IPortfolioService? portfolioService = null) =>
         new(
             customers,
             workflows ?? Substitute.For<IWorkflowEnqueueService>(),
             orderService ?? Substitute.For<IOrderService>(),
-            positionService ?? Substitute.For<IPositionService>());
+            portfolioService ?? CreateEmptyPortfolioService());
+
+    private static IPortfolioService CreateEmptyPortfolioService()
+    {
+        var portfolio = Substitute.For<IPortfolioService>();
+        portfolio.GetPortfolio(Arg.Any<Guid>(), Arg.Any<string>())
+            .Returns(call => new PortfolioSnapshot(
+                call.ArgAt<Guid>(0),
+                call.ArgAt<string>(1),
+                0m,
+                0m,
+                0m,
+                []));
+        return portfolio;
+    }
 }

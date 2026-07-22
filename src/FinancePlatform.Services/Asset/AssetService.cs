@@ -15,15 +15,17 @@ public sealed class AssetService(
     ITradeService tradeService,
     IAllocationService allocationService) : IAssetService
 {
-    public ComponentOperationResult Buy(TriggerContext context, AssetOrderRequest request)
+    public async Task<ComponentOperationResult> BuyAsync(
+        TriggerContext context,
+        AssetOrderRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var cashAmount = request.EffectiveCashAmount;
-        if (cashAmount <= 0)
+        if (request.Quantity <= 0)
         {
-            return ComponentOperationResult.Failure("Asset buy requires a positive cash amount.");
+            return ComponentOperationResult.Failure("Asset buy requires a positive quantity.");
         }
 
-        var result = tradeService.Buy(context, ToTradeRequest(request, cashAmount));
+        var result = await tradeService.BuyAsync(context, ToTradeRequest(request), cancellationToken);
         if (result.ResultCode == TriggerResultCode.Success
             && context.AllocationRequestId is { } allocationId)
         {
@@ -33,26 +35,30 @@ public sealed class AssetService(
         return result;
     }
 
-    public ComponentOperationResult Sell(TriggerContext context, AssetOrderRequest request)
+    public Task<ComponentOperationResult> SellAsync(
+        TriggerContext context,
+        AssetOrderRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var cashAmount = request.EffectiveCashAmount;
-        if (cashAmount <= 0)
+        if (request.Quantity <= 0)
         {
-            return ComponentOperationResult.Failure("Asset sell requires a positive cash amount.");
+            return Task.FromResult(ComponentOperationResult.Failure("Asset sell requires a positive quantity."));
         }
 
-        return tradeService.Sell(context, ToTradeRequest(request, cashAmount));
+        return tradeService.SellAsync(context, ToTradeRequest(request), cancellationToken);
     }
 
-    public ComponentOperationResult ReverseBuy(TriggerContext context, AssetOrderRequest request)
+    public async Task<ComponentOperationResult> ReverseBuyAsync(
+        TriggerContext context,
+        AssetOrderRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var cashAmount = request.EffectiveCashAmount;
-        if (cashAmount <= 0)
+        if (request.Quantity <= 0)
         {
             return ComponentOperationResult.Success(resultJson: """{"status":"asset-buy-reversed"}""");
         }
 
-        var result = tradeService.ReverseBuy(context, ToTradeRequest(request, cashAmount));
+        var result = await tradeService.ReverseBuyAsync(context, ToTradeRequest(request), cancellationToken);
         if (result.ResultCode == TriggerResultCode.Success)
         {
             return ComponentOperationResult.Success(resultJson: """{"status":"asset-buy-reversed"}""");
@@ -61,11 +67,15 @@ public sealed class AssetService(
         return result;
     }
 
-    private static TradeAssetRequest ToTradeRequest(AssetOrderRequest request, decimal cashAmount) => new()
+    private static TradeAssetRequest ToTradeRequest(AssetOrderRequest request)
     {
-        AssetSymbol = request.AssetSymbol,
-        Quantity = request.Quantity,
-        Currency = request.Currency,
-        CashAmount = cashAmount
-    };
+        var cashHint = request.EffectiveCashAmount;
+        return new TradeAssetRequest
+        {
+            AssetSymbol = request.AssetSymbol,
+            Quantity = request.Quantity,
+            Currency = request.Currency,
+            CashAmount = cashHint > 0 ? cashHint : null
+        };
+    }
 }

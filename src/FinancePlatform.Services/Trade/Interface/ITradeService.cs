@@ -20,13 +20,25 @@ public interface ITradeService
     /// </summary>
     ComponentOperationResult TransferToCustomer(TriggerContext context, TradingTransferToCustomerRequest request);
 
-    ComponentOperationResult Buy(TriggerContext context, TradeAssetRequest request);
+    Task<ComponentOperationResult> BuyAsync(
+        TriggerContext context,
+        TradeAssetRequest request,
+        CancellationToken cancellationToken = default);
 
-    ComponentOperationResult Sell(TriggerContext context, TradeAssetRequest request);
+    Task<ComponentOperationResult> SellAsync(
+        TriggerContext context,
+        TradeAssetRequest request,
+        CancellationToken cancellationToken = default);
 
-    ComponentOperationResult ReverseBuy(TriggerContext context, TradeAssetRequest request);
+    Task<ComponentOperationResult> ReverseBuyAsync(
+        TriggerContext context,
+        TradeAssetRequest request,
+        CancellationToken cancellationToken = default);
 
-    ComponentOperationResult ReverseSell(TriggerContext context, TradeAssetRequest request);
+    Task<ComponentOperationResult> ReverseSellAsync(
+        TriggerContext context,
+        TradeAssetRequest request,
+        CancellationToken cancellationToken = default);
 
     decimal GetPosition(Guid accountId, string assetSymbol);
 }

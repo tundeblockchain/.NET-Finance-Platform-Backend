@@ -15,13 +15,30 @@ BEGIN
         Side                 INT              NOT NULL,
         Quantity             DECIMAL(18, 8)   NOT NULL,
         LimitPrice           DECIMAL(18, 8)   NULL,
+        FillPrice            DECIMAL(18, 8)   NULL,
+        ExternalOrderId      NVARCHAR(100)    NULL,
+        Provider             NVARCHAR(64)     NULL,
         Status               INT              NOT NULL,
         IdempotencyKey       NVARCHAR(200)    NOT NULL,
         CreatedUtc           DATETIMEOFFSET   NOT NULL,
         SubmittedUtc         DATETIMEOFFSET   NULL,
+        FilledUtc            DATETIMEOFFSET   NULL,
         DateModified         DATETIMEOFFSET   NOT NULL,
         ChangedBy            NVARCHAR(100)    NOT NULL
     );
     CREATE INDEX IX_Order_a_Id ON dbo.Order_a (Id, ArchivedUtc);
 END
+GO
+
+IF COL_LENGTH(N'dbo.Order_a', N'FillPrice') IS NULL
+    ALTER TABLE dbo.Order_a ADD FillPrice DECIMAL(18, 8) NULL;
+GO
+IF COL_LENGTH(N'dbo.Order_a', N'ExternalOrderId') IS NULL
+    ALTER TABLE dbo.Order_a ADD ExternalOrderId NVARCHAR(100) NULL;
+GO
+IF COL_LENGTH(N'dbo.Order_a', N'Provider') IS NULL
+    ALTER TABLE dbo.Order_a ADD Provider NVARCHAR(64) NULL;
+GO
+IF COL_LENGTH(N'dbo.Order_a', N'FilledUtc') IS NULL
+    ALTER TABLE dbo.Order_a ADD FilledUtc DATETIMEOFFSET NULL;
 GO

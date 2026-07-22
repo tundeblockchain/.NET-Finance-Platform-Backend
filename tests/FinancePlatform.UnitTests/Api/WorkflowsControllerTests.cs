@@ -21,7 +21,7 @@ public class WorkflowsControllerTests
         var accountId = Guid.NewGuid();
 
         var result = await controller.EnqueueBuy(
-            new BuyRequest(accountId, "VWRL", 1m, 50m, "legacy-buy"),
+            new BuyRequest(accountId, "VWRL", 1m),
             CancellationToken.None);
 
         var accepted = result.Result.Should().BeOfType<AcceptedResult>().Subject;

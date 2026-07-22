@@ -2,7 +2,7 @@ using FinancePlatform.Api.Contracts;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Orders;
-using FinancePlatform.Services.Positions;
+using FinancePlatform.Services.Portfolio;
 using FinancePlatform.Services.Workflows;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,12 +15,12 @@ public sealed class TradingController(
     ICustomerService customerService,
     IWorkflowEnqueueService workflowsService,
     IOrderService orderService,
-    IPositionService positionService) : ControllerBase
+    IPortfolioService portfolioService) : ControllerBase
 {
     [HttpGet("funds")]
     [EndpointName("GetTradingFunds")]
     [EndpointSummary("View trading funds")]
-    [EndpointDescription("Returns parked cash in the trading account plus open asset positions.")]
+    [EndpointDescription("Returns parked cash, open positions, and mark-to-market totals from stored prices.")]
     public ActionResult<TradingFundsResponse> GetFunds(int customerId)
     {
         var customer = customerService.GetCustomer(customerId);
@@ -29,20 +29,64 @@ public sealed class TradingController(
             return NotFound();
         }
 
-        var accountId = customer.TradingAccount.Id;
-        var positions = positionService.GetByAccount(accountId)
-            .Select(p => new PositionResponse(p.AssetSymbol, p.Quantity))
+        var portfolio = portfolioService.GetPortfolio(
+            customer.TradingAccount.Id,
+            customer.TradingAccount.Currency);
+
+        var cash = CustomerMapper.ToTradingAccountBalance(customer.TradingAccount);
+        var positions = portfolio.Positions
+            .Select(p => new PositionResponse(
+                p.AssetSymbol,
+                p.Quantity,
+                p.LastPrice,
+                p.MarketValue,
+                p.PriceObservedUtc))
             .ToArray();
 
         return Ok(new TradingFundsResponse(
-            CustomerMapper.ToTradingAccountBalance(customer.TradingAccount),
-            positions));
+            cash,
+            positions,
+            portfolio.PositionsMarketValue,
+            cash.Available + portfolio.PositionsMarketValue));
+    }
+
+    [HttpGet("portfolio")]
+    [EndpointName("GetTradingPortfolio")]
+    [EndpointSummary("View portfolio valuation")]
+    [EndpointDescription("Cash + positions valued using the latest stored quote/fill prices.")]
+    public ActionResult<PortfolioResponse> GetPortfolio(int customerId)
+    {
+        var customer = customerService.GetCustomer(customerId);
+        if (customer is null)
+        {
+            return NotFound();
+        }
+
+        var portfolio = portfolioService.GetPortfolio(
+            customer.TradingAccount.Id,
+            customer.TradingAccount.Currency);
+        var cashAvailable = customer.TradingAccount.Available;
+
+        return Ok(new PortfolioResponse(
+            portfolio.TradingAccountId,
+            portfolio.Currency,
+            cashAvailable,
+            portfolio.PositionsMarketValue,
+            cashAvailable + portfolio.PositionsMarketValue,
+            portfolio.Positions
+                .Select(p => new PositionResponse(
+                    p.AssetSymbol,
+                    p.Quantity,
+                    p.LastPrice,
+                    p.MarketValue,
+                    p.PriceObservedUtc))
+                .ToArray()));
     }
 
     [HttpGet("positions")]
     [EndpointName("GetTradingPositions")]
     [EndpointSummary("View positions")]
-    [EndpointDescription("Lists asset holdings for the customer's trading account.")]
+    [EndpointDescription("Lists asset holdings for the customer's trading account with last known prices.")]
     public ActionResult<IReadOnlyList<PositionResponse>> GetPositions(int customerId)
     {
         var customer = customerService.GetCustomer(customerId);
@@ -51,8 +95,17 @@ public sealed class TradingController(
             return NotFound();
         }
 
-        var positions = positionService.GetByAccount(customer.TradingAccount.Id)
-            .Select(p => new PositionResponse(p.AssetSymbol, p.Quantity))
+        var portfolio = portfolioService.GetPortfolio(
+            customer.TradingAccount.Id,
+            customer.TradingAccount.Currency);
+
+        var positions = portfolio.Positions
+            .Select(p => new PositionResponse(
+                p.AssetSymbol,
+                p.Quantity,
+                p.LastPrice,
+                p.MarketValue,
+                p.PriceObservedUtc))
             .ToArray();
 
         return Ok(positions);
@@ -78,9 +131,13 @@ public sealed class TradingController(
                 o.Side.ToString(),
                 o.Quantity,
                 o.LimitPrice,
+                o.FillPrice,
+                o.Provider,
+                o.ExternalOrderId,
                 o.Status.ToString(),
                 o.CreatedUtc,
-                o.SubmittedUtc))
+                o.SubmittedUtc,
+                o.FilledUtc))
             .ToArray();
 
         return Ok(history);
@@ -115,10 +172,8 @@ public sealed class TradingController(
             AccountId = tradingAccountId,
             AssetSymbol = body.AssetSymbol,
             Quantity = body.Quantity,
-            CashAmount = body.CashAmount,
             Currency = body.Currency ?? customer.TradingAccount.Currency,
-            IdempotencyKey = body.IdempotencyKey,
-            RootWorkflowId = body.RootWorkflowId,
+            IdempotencyKey = IdempotencyKeys.ForTrade("buy"),
             ExternalType = ExternalEntityType.TradingAccount
         }, ct);
 
@@ -156,10 +211,8 @@ public sealed class TradingController(
             AccountId = tradingAccountId,
             AssetSymbol = body.AssetSymbol,
             Quantity = body.Quantity,
-            CashAmount = body.CashAmount,
             Currency = body.Currency ?? customer.TradingAccount.Currency,
-            IdempotencyKey = body.IdempotencyKey,
-            RootWorkflowId = body.RootWorkflowId,
+            IdempotencyKey = IdempotencyKeys.ForTrade("sell"),
             ExternalType = ExternalEntityType.TradingAccount
         }, ct);
 

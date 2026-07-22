@@ -22,6 +22,7 @@ public static class DataServiceCollectionExtensions
         services.AddSingleton<ICashReservationRepository, CashReservationRepository>();
         services.AddSingleton<IPositionRepository, PositionRepository>();
         services.AddSingleton<IOrderRepository, OrderRepository>();
+        services.AddSingleton<IAssetPriceRepository, AssetPriceRepository>();
         services.AddSingleton<ILedgerEntryRepository, LedgerEntryRepository>();
 
         services.AddSingleton<ICustomerRepository, CustomerRepository>();

@@ -74,8 +74,7 @@ public sealed class CashComponentService(
                         {
                             AssetSymbol = request.AssetSymbol,
                             Quantity = request.Quantity,
-                            Currency = request.Currency,
-                            CashAmount = request.Amount
+                            Currency = request.Currency
                         }),
                         IdempotencyKey = $"{context.IdempotencyKey}:buy"
                     }

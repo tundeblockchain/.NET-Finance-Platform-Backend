@@ -1,5 +1,8 @@
 using FinancePlatform.Services;
+using FinancePlatform.Services.Configuration;
 using Scalar.AspNetCore;
+
+EnvFileLoader.Load();
 
 var builder = WebApplication.CreateBuilder(args);
 

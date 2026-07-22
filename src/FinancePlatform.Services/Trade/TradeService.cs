@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using FinancePlatform.Models.Allocation;
 using FinancePlatform.Models.Components;
@@ -6,23 +7,28 @@ using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
+using FinancePlatform.Services.Brokers;
 using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
+using FinancePlatform.Services.Pricing;
 
 namespace FinancePlatform.Services.Trade;
 
 /// <summary>
-/// Main trading component service. Uses cash, orders, positions, ledger, and customer directory.
+/// Main trading component service. Uses cash, orders, positions, ledger, broker, and pricing.
+/// External broker I/O never runs while a cash lock is held.
 /// </summary>
 public sealed class TradeService(
     ICashService cashService,
     ILedgerService ledgerService,
     IOrderService orderService,
     IPositionService positionService,
-    ICustomerDirectory customerDirectory) : ITradeService
+    ICustomerDirectory customerDirectory,
+    IBrokerTradingProvider broker,
+    IAssetPriceService assetPrices) : ITradeService
 {
     private static readonly TimeSpan LockLease = TimeSpan.FromSeconds(30);
 
@@ -160,7 +166,10 @@ public sealed class TradeService(
             ]);
     }
 
-    public ComponentOperationResult Buy(TriggerContext context, TradeAssetRequest request)
+    public async Task<ComponentOperationResult> BuyAsync(
+        TriggerContext context,
+        TradeAssetRequest request,
+        CancellationToken cancellationToken = default)
     {
         Validate(request);
 
@@ -169,10 +178,40 @@ public sealed class TradeService(
 
         var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
         var reserveKey = $"{context.IdempotencyKey}:reserve";
+        var settleKey = $"{context.IdempotencyKey}:settle";
         var orderKey = $"{context.IdempotencyKey}:order";
         var positionKey = $"{context.IdempotencyKey}:position";
         var ledgerKey = $"{context.IdempotencyKey}:ledger";
+        var referencePrice = ResolveReferencePrice(request);
 
+        // Idempotent retry: local order already recorded after a prior successful buy.
+        if (orderService.FindByIdempotencyKey(orderKey) is not null)
+        {
+            return ComponentOperationResult.Success(resultJson: """{"status":"bought","idempotent":true}""");
+        }
+
+        BrokerQuote quote;
+        try
+        {
+            quote = await broker.GetQuoteAsync(request.AssetSymbol, referencePrice, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return ComponentOperationResult.Failure($"Quote failed: {ex.Message}");
+        }
+
+        var unitQuote = quote.Ask > 0 ? quote.Ask : quote.Mid;
+        var estimatedCash = RoundMoney(unitQuote * request.Quantity);
+
+        assetPrices.Record(
+            quote.AssetSymbol,
+            unitQuote,
+            request.Currency,
+            AssetPriceSource.Quote,
+            quote.Provider,
+            observedUtc: quote.ObservedUtc);
+
+        var reserved = false;
         var lockResult = cashService.TryAcquireLock(
             accountId,
             request.Currency,
@@ -185,14 +224,13 @@ public sealed class TradeService(
             return ComponentOperationResult.Retry("Cash balance is locked by another trigger.");
         }
 
-        var reserved = false;
         try
         {
             var reserve = cashService.TryReserve(
                 reserveKey,
                 accountId,
                 request.Currency,
-                request.CashAmount,
+                estimatedCash,
                 context.TriggerId,
                 allocationId);
 
@@ -202,7 +240,46 @@ public sealed class TradeService(
             }
 
             reserved = true;
+        }
+        finally
+        {
+            cashService.TryReleaseLock(accountId, request.Currency, context.TriggerId);
+        }
 
+        BrokerOrderExecution execution;
+        try
+        {
+            execution = await broker.PlaceMarketOrderAsync(
+                new BrokerMarketOrderRequest(
+                    request.AssetSymbol,
+                    OrderSide.Buy,
+                    request.Quantity,
+                    orderKey,
+                    unitQuote),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            ReleaseReservationSafe(accountId, request.Currency, reserveKey, context.TriggerId, allocationId);
+            return ComponentOperationResult.Failure($"Broker buy failed: {ex.Message}");
+        }
+
+        var fillNotional = RoundMoney(execution.AverageFillPrice * execution.Quantity);
+
+        lockResult = cashService.TryAcquireLock(
+            accountId,
+            request.Currency,
+            context.TriggerId,
+            allocationId,
+            LockLease);
+
+        if (!lockResult.IsHeld)
+        {
+            return ComponentOperationResult.Retry("Cash balance is locked by another trigger after broker fill.");
+        }
+
+        try
+        {
             var order = orderService.TrySubmit(
                 orderKey,
                 accountId,
@@ -211,7 +288,11 @@ public sealed class TradeService(
                 request.AssetSymbol,
                 OrderSide.Buy,
                 request.Quantity,
-                limitPrice: null);
+                limitPrice: null,
+                fillPrice: execution.AverageFillPrice,
+                externalOrderId: execution.ExternalOrderId,
+                provider: execution.Provider,
+                filledUtc: execution.FilledUtc);
 
             if (!order.Succeeded)
             {
@@ -219,12 +300,48 @@ public sealed class TradeService(
                 return ComponentOperationResult.Failure(order.Error ?? "Order submit failed.");
             }
 
+            assetPrices.Record(
+                execution.AssetSymbol,
+                execution.AverageFillPrice,
+                request.Currency,
+                AssetPriceSource.TradeFill,
+                execution.Provider,
+                orderId: order.Order?.Id,
+                externalOrderId: execution.ExternalOrderId,
+                observedUtc: execution.FilledUtc);
+
             positionService.TryApplyBuy(positionKey, accountId, request.AssetSymbol, request.Quantity);
 
-            var consume = cashService.TryConsumeReservation(reserveKey, context.TriggerId);
-            if (!consume.Succeeded && !consume.AlreadyApplied)
+            if (fillNotional == estimatedCash)
             {
-                return ComponentOperationResult.Failure(consume.Error ?? "Failed to consume cash reservation.");
+                var consume = cashService.TryConsumeReservation(reserveKey, context.TriggerId);
+                if (!consume.Succeeded && !consume.AlreadyApplied)
+                {
+                    return ComponentOperationResult.Failure(consume.Error ?? "Failed to consume cash reservation.");
+                }
+            }
+            else
+            {
+                cashService.TryReleaseReservation(reserveKey, context.TriggerId);
+                var settleReserve = cashService.TryReserve(
+                    settleKey,
+                    accountId,
+                    request.Currency,
+                    fillNotional,
+                    context.TriggerId,
+                    allocationId);
+                if (!settleReserve.Succeeded)
+                {
+                    return ComponentOperationResult.Failure(
+                        settleReserve.Error ?? "Unable to settle cash for broker fill amount.");
+                }
+
+                var settleConsume = cashService.TryConsumeReservation(settleKey, context.TriggerId);
+                if (!settleConsume.Succeeded && !settleConsume.AlreadyApplied)
+                {
+                    return ComponentOperationResult.Failure(
+                        settleConsume.Error ?? "Failed to consume settlement cash reservation.");
+                }
             }
 
             reserved = false;
@@ -233,7 +350,7 @@ public sealed class TradeService(
                 ledgerKey,
                 accountId,
                 request.Currency,
-                request.CashAmount,
+                fillNotional,
                 LedgerEntryType.Debit,
                 $"Buy {request.Quantity} {request.AssetSymbol}",
                 context.TriggerId,
@@ -244,8 +361,11 @@ public sealed class TradeService(
                 return ComponentOperationResult.Failure(ledger.Error ?? "Ledger debit failed.");
             }
 
-            SyncTradingAccountDebit(accountId, request.CashAmount, context);
-            return ComponentOperationResult.Success(resultJson: """{"status":"bought"}""");
+            SyncTradingAccountDebit(accountId, fillNotional, context);
+            var fill = execution.AverageFillPrice.ToString(CultureInfo.InvariantCulture);
+            var notional = fillNotional.ToString(CultureInfo.InvariantCulture);
+            return ComponentOperationResult.Success(
+                resultJson: $"{{\"status\":\"bought\",\"provider\":\"{execution.Provider}\",\"fillPrice\":{fill},\"cashAmount\":{notional},\"externalOrderId\":\"{execution.ExternalOrderId}\"}}");
         }
         finally
         {
@@ -258,7 +378,10 @@ public sealed class TradeService(
         }
     }
 
-    public ComponentOperationResult Sell(TriggerContext context, TradeAssetRequest request)
+    public async Task<ComponentOperationResult> SellAsync(
+        TriggerContext context,
+        TradeAssetRequest request,
+        CancellationToken cancellationToken = default)
     {
         Validate(request);
 
@@ -270,6 +393,59 @@ public sealed class TradeService(
         var positionKey = $"{context.IdempotencyKey}:position";
         var creditKey = $"{context.IdempotencyKey}:credit";
         var ledgerKey = $"{context.IdempotencyKey}:ledger";
+        var referencePrice = ResolveReferencePrice(request);
+
+        // Idempotent retry: local order already recorded after a prior successful sell.
+        if (orderService.FindByIdempotencyKey(orderKey) is not null)
+        {
+            return ComponentOperationResult.Success(resultJson: """{"status":"sold","idempotent":true}""");
+        }
+
+        var available = positionService.GetQuantity(accountId, request.AssetSymbol);
+        if (available < request.Quantity)
+        {
+            return ComponentOperationResult.Failure(
+                $"Insufficient position for {request.AssetSymbol}. Available={available}, requested={request.Quantity}.");
+        }
+
+        BrokerQuote quote;
+        try
+        {
+            quote = await broker.GetQuoteAsync(request.AssetSymbol, referencePrice, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return ComponentOperationResult.Failure($"Quote failed: {ex.Message}");
+        }
+
+        var unitQuote = quote.Bid > 0 ? quote.Bid : quote.Mid;
+
+        assetPrices.Record(
+            quote.AssetSymbol,
+            unitQuote,
+            request.Currency,
+            AssetPriceSource.Quote,
+            quote.Provider,
+            observedUtc: quote.ObservedUtc);
+
+        BrokerOrderExecution execution;
+        try
+        {
+            execution = await broker.PlaceMarketOrderAsync(
+                new BrokerMarketOrderRequest(
+                    request.AssetSymbol,
+                    OrderSide.Sell,
+                    request.Quantity,
+                    orderKey,
+                    unitQuote),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            return ComponentOperationResult.Failure($"Broker sell failed: {ex.Message}");
+        }
+
+        var fillNotional = RoundMoney(execution.AverageFillPrice * execution.Quantity);
 
         var lockResult = cashService.TryAcquireLock(
             accountId,
@@ -304,18 +480,32 @@ public sealed class TradeService(
                 request.AssetSymbol,
                 OrderSide.Sell,
                 request.Quantity,
-                limitPrice: null);
+                limitPrice: null,
+                fillPrice: execution.AverageFillPrice,
+                externalOrderId: execution.ExternalOrderId,
+                provider: execution.Provider,
+                filledUtc: execution.FilledUtc);
 
             if (!order.Succeeded)
             {
                 return ComponentOperationResult.Failure(order.Error ?? "Order submit failed.");
             }
 
+            assetPrices.Record(
+                execution.AssetSymbol,
+                execution.AverageFillPrice,
+                request.Currency,
+                AssetPriceSource.TradeFill,
+                execution.Provider,
+                orderId: order.Order?.Id,
+                externalOrderId: execution.ExternalOrderId,
+                observedUtc: execution.FilledUtc);
+
             var credit = cashService.TryDeposit(
                 creditKey,
                 accountId,
                 request.Currency,
-                request.CashAmount,
+                fillNotional,
                 context.TriggerId);
 
             if (!credit.Succeeded)
@@ -327,7 +517,7 @@ public sealed class TradeService(
                 ledgerKey,
                 accountId,
                 request.Currency,
-                request.CashAmount,
+                fillNotional,
                 LedgerEntryType.Credit,
                 $"Sell {request.Quantity} {request.AssetSymbol}",
                 context.TriggerId,
@@ -338,8 +528,11 @@ public sealed class TradeService(
                 return ComponentOperationResult.Failure(ledger.Error ?? "Ledger credit failed.");
             }
 
-            SyncTradingAccountCredit(accountId, request.CashAmount, context);
-            return ComponentOperationResult.Success(resultJson: """{"status":"sold"}""");
+            SyncTradingAccountCredit(accountId, fillNotional, context);
+            var fill = execution.AverageFillPrice.ToString(CultureInfo.InvariantCulture);
+            var notional = fillNotional.ToString(CultureInfo.InvariantCulture);
+            return ComponentOperationResult.Success(
+                resultJson: $"{{\"status\":\"sold\",\"provider\":\"{execution.Provider}\",\"fillPrice\":{fill},\"cashAmount\":{notional},\"externalOrderId\":\"{execution.ExternalOrderId}\"}}");
         }
         finally
         {
@@ -347,8 +540,12 @@ public sealed class TradeService(
         }
     }
 
-    public ComponentOperationResult ReverseBuy(TriggerContext context, TradeAssetRequest request)
+    public Task<ComponentOperationResult> ReverseBuyAsync(
+        TriggerContext context,
+        TradeAssetRequest request,
+        CancellationToken cancellationToken = default)
     {
+        _ = cancellationToken;
         Validate(request);
 
         var accountId = context.ExternalId
@@ -358,6 +555,7 @@ public sealed class TradeService(
         var positionKey = $"{context.IdempotencyKey}:reverse-position";
         var creditKey = $"{context.IdempotencyKey}:reverse-credit";
         var ledgerKey = $"{context.IdempotencyKey}:reverse-ledger";
+        var cashAmount = ResolveCashForReversal(request);
 
         var lockResult = cashService.TryAcquireLock(
             accountId,
@@ -368,7 +566,7 @@ public sealed class TradeService(
 
         if (!lockResult.IsHeld)
         {
-            return ComponentOperationResult.Retry("Cash balance is locked by another trigger.");
+            return Task.FromResult(ComponentOperationResult.Retry("Cash balance is locked by another trigger."));
         }
 
         try
@@ -385,21 +583,21 @@ public sealed class TradeService(
                     creditKey,
                     accountId,
                     request.Currency,
-                    request.CashAmount,
+                    cashAmount,
                     context.TriggerId);
 
                 ledgerService.TryPost(
                     ledgerKey,
                     accountId,
                     request.Currency,
-                    request.CashAmount,
+                    cashAmount,
                     LedgerEntryType.Credit,
                     $"Reverse buy {request.Quantity} {request.AssetSymbol}",
                     context.TriggerId,
                     allocationId);
             }
 
-            return ComponentOperationResult.Success(resultJson: """{"status":"buy-reversed"}""");
+            return Task.FromResult(ComponentOperationResult.Success(resultJson: """{"status":"buy-reversed"}"""));
         }
         finally
         {
@@ -407,15 +605,66 @@ public sealed class TradeService(
         }
     }
 
-    public ComponentOperationResult ReverseSell(TriggerContext context, TradeAssetRequest request)
+    public async Task<ComponentOperationResult> ReverseSellAsync(
+        TriggerContext context,
+        TradeAssetRequest request,
+        CancellationToken cancellationToken = default)
     {
-        var result = Buy(context, request);
+        var result = await BuyAsync(context, request, cancellationToken);
         if (result.ResultCode == TriggerResultCode.Success)
         {
             return ComponentOperationResult.Success(resultJson: """{"status":"sell-reversed"}""");
         }
 
         return result;
+    }
+
+    private decimal ResolveCashForReversal(TradeAssetRequest request)
+    {
+        if (request.CashAmount is > 0)
+        {
+            return RoundMoney(request.CashAmount.Value);
+        }
+
+        var latest = assetPrices.GetLatest(request.AssetSymbol);
+        if (latest is null || latest.Price <= 0)
+        {
+            throw new InvalidOperationException(
+                $"Cannot reverse buy for {request.AssetSymbol} without a stored price or CashAmount.");
+        }
+
+        return RoundMoney(latest.Price * request.Quantity);
+    }
+
+    private static decimal? ResolveReferencePrice(TradeAssetRequest request) =>
+        request.CashAmount is > 0 && request.Quantity > 0
+            ? request.CashAmount.Value / request.Quantity
+            : null;
+
+    private static decimal RoundMoney(decimal amount) =>
+        decimal.Round(amount, 8, MidpointRounding.AwayFromZero);
+
+    private void ReleaseReservationSafe(
+        Guid accountId,
+        string currency,
+        string reserveKey,
+        Guid triggerId,
+        Guid allocationId)
+    {
+        var lockResult = cashService.TryAcquireLock(accountId, currency, triggerId, allocationId, LockLease);
+        if (!lockResult.IsHeld)
+        {
+            return;
+        }
+
+        try
+        {
+            cashService.TryReleaseReservation(reserveKey, triggerId);
+        }
+        finally
+        {
+            cashService.TryReleaseLock(accountId, currency, triggerId);
+        }
     }
 
     private void SyncCashDeposit(Guid tradingAccountId, string currency, decimal amount, TriggerContext context)
@@ -521,11 +770,6 @@ public sealed class TradeService(
         if (request.Quantity <= 0)
         {
             throw new ArgumentOutOfRangeException(nameof(request), "Quantity must be positive.");
-        }
-
-        if (request.CashAmount <= 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(request), "CashAmount must be positive.");
         }
     }
 }

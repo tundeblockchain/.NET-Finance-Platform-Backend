@@ -17,7 +17,11 @@ public sealed class InMemoryOrderService : IOrderService
         string assetSymbol,
         OrderSide side,
         decimal quantity,
-        decimal? limitPrice)
+        decimal? limitPrice,
+        decimal? fillPrice = null,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(assetSymbol);
@@ -42,10 +46,14 @@ public sealed class InMemoryOrderService : IOrderService
             Side = side,
             Quantity = quantity,
             LimitPrice = limitPrice,
+            FillPrice = fillPrice,
+            ExternalOrderId = externalOrderId,
+            Provider = provider,
             Status = OrderStatus.Filled,
             IdempotencyKey = idempotencyKey,
             CreatedUtc = now,
             SubmittedUtc = now,
+            FilledUtc = filledUtc ?? now,
             DateModified = now,
             ChangedBy = ChangeActors.Broker
         };
@@ -80,10 +88,14 @@ public sealed class InMemoryOrderService : IOrderService
         Side = o.Side,
         Quantity = o.Quantity,
         LimitPrice = o.LimitPrice,
+        FillPrice = o.FillPrice,
+        ExternalOrderId = o.ExternalOrderId,
+        Provider = o.Provider,
         Status = o.Status,
         IdempotencyKey = o.IdempotencyKey,
         CreatedUtc = o.CreatedUtc,
         SubmittedUtc = o.SubmittedUtc,
+        FilledUtc = o.FilledUtc,
         DateModified = o.DateModified,
         ChangedBy = o.ChangedBy
     };

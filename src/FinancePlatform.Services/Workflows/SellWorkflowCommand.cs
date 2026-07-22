@@ -10,8 +10,6 @@ public sealed class SellWorkflowCommand
 
     public required decimal Quantity { get; init; }
 
-    public required decimal CashAmount { get; init; }
-
     public string Currency { get; init; } = "GBP";
 
     public required string IdempotencyKey { get; init; }

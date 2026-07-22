@@ -1,16 +1,15 @@
 using System.Text.Json;
-using FinancePlatform.Models.Cash;
 using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
+using FinancePlatform.Services.Brokers;
 using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
-using FinancePlatform.Services.Customer;
-using FinancePlatform.Services.Trade;
 using FinancePlatform.Services.Triggers;
+using FinancePlatform.UnitTests.Support;
 using FinancePlatform.Worker.EventProcessors;
 using FluentAssertions;
 
@@ -36,8 +35,7 @@ public class TradeEPBuyTests
             {
                 AssetSymbol = "VWRL",
                 Quantity = 1m,
-                Currency = "GBP",
-                CashAmount = 100m
+                Currency = "GBP"
             }),
             new TriggerRaiseBuffer(),
             CancellationToken.None);
@@ -55,11 +53,12 @@ public class TradeEPBuyTests
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
+        var trade = TradeServiceTestFactory.Create(cash, ledger, orders, positions);
         var ep = new TradeEP(trade);
         var accountId = Guid.NewGuid();
         var seedTrigger = Guid.NewGuid();
 
+        // Simulated default unit price is 100 → 2 shares cost 200.
         cash.TryAcquireLock(accountId, "GBP", seedTrigger, Guid.NewGuid(), TimeSpan.FromMinutes(1));
         cash.TryDeposit("seed", accountId, "GBP", 200m, seedTrigger);
         cash.TryReleaseLock(accountId, "GBP", seedTrigger);
@@ -71,17 +70,17 @@ public class TradeEPBuyTests
             {
                 AssetSymbol = "VWRL",
                 Quantity = 2m,
-                Currency = "GBP",
-                CashAmount = 150m
+                Currency = "GBP"
             }),
             new TriggerRaiseBuffer(),
             CancellationToken.None);
 
         result.ResultCode.Should().Be(TriggerResultCode.Success);
-        cash.GetSettled(accountId, "GBP").Should().Be(50m);
+        cash.GetSettled(accountId, "GBP").Should().Be(0m);
         positions.GetQuantity(accountId, "VWRL").Should().Be(2m);
         orders.OrderCount.Should().Be(1);
         ledger.EntryCount.Should().Be(1);
+        orders.GetByAccount(accountId).Single().FillPrice.Should().Be(SimulatedBrokerTradingProvider.DefaultUnitPrice);
     }
 
     private static (InMemoryCashService Cash, InMemoryPositionService Positions, TradeEP Ep) CreateEp()
@@ -90,7 +89,7 @@ public class TradeEPBuyTests
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
+        var trade = TradeServiceTestFactory.Create(cash, ledger, orders, positions);
         return (cash, positions, new TradeEP(trade));
     }
 

@@ -3,13 +3,13 @@ using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
+using FinancePlatform.Services.Brokers;
 using FinancePlatform.Services.Cash;
-using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
-using FinancePlatform.Services.Trade;
 using FinancePlatform.Services.Triggers;
+using FinancePlatform.UnitTests.Support;
 using FinancePlatform.Worker.EventProcessors;
 using FluentAssertions;
 
@@ -24,11 +24,12 @@ public class TradeEPSellTests
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
+        var trade = TradeServiceTestFactory.Create(cash, ledger, orders, positions);
         var ep = new TradeEP(trade);
         var accountId = Guid.NewGuid();
         var seedTrigger = Guid.NewGuid();
 
+        // Simulated default unit price is 100 → buy 3 costs 300; sell 2 credits 200.
         cash.TryAcquireLock(accountId, "GBP", seedTrigger, Guid.NewGuid(), TimeSpan.FromMinutes(1));
         cash.TryDeposit("seed", accountId, "GBP", 300m, seedTrigger);
         cash.TryReleaseLock(accountId, "GBP", seedTrigger);
@@ -41,8 +42,7 @@ public class TradeEPSellTests
             {
                 AssetSymbol = "VWRL",
                 Quantity = 3m,
-                Currency = "GBP",
-                CashAmount = 300m
+                Currency = "GBP"
             }),
             new TriggerRaiseBuffer(),
             CancellationToken.None)).ResultCode.Should().Be(TriggerResultCode.Success);
@@ -51,8 +51,7 @@ public class TradeEPSellTests
         {
             AssetSymbol = "VWRL",
             Quantity = 2m,
-            Currency = "GBP",
-            CashAmount = 180m
+            Currency = "GBP"
         });
 
         var sellContext = CreateContext(accountId, "sell-1");
@@ -63,7 +62,7 @@ public class TradeEPSellTests
         repeat.ResultCode.Should().Be(TriggerResultCode.Success);
 
         positions.GetQuantity(accountId, "VWRL").Should().Be(1m);
-        cash.GetSettled(accountId, "GBP").Should().Be(180m);
+        cash.GetSettled(accountId, "GBP").Should().Be(2m * SimulatedBrokerTradingProvider.DefaultUnitPrice);
         orders.OrderCount.Should().Be(2);
     }
 

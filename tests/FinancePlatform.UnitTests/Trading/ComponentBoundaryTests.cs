@@ -6,6 +6,7 @@ using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
 using FinancePlatform.Services.Trade;
+using FinancePlatform.UnitTests.Support;
 using FluentAssertions;
 
 namespace FinancePlatform.UnitTests.Trading;
@@ -28,7 +29,7 @@ public class ComponentBoundaryTests
         var ledger = new InMemoryLedgerService();
         var positions = new InMemoryPositionService();
         var orders = new InMemoryOrderService();
-        var trade = new TradeService(cash, ledger, orders, positions, new InMemoryCustomerDirectory());
+        var trade = TradeServiceTestFactory.Create(cash, ledger, orders, positions);
         var accountId = Guid.NewGuid();
 
         positions.TryApplyBuy("p1", accountId, "VWRL", 5m);

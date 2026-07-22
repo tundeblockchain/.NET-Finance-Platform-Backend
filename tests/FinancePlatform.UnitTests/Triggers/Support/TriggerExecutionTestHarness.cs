@@ -9,6 +9,7 @@ using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Positions;
 using FinancePlatform.Services.Trade;
 using FinancePlatform.Services.Triggers;
+using FinancePlatform.UnitTests.Support;
 using FinancePlatform.Worker.EventProcessors;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -36,7 +37,7 @@ internal sealed record TriggerExecutionTestHarness(
         var orders = new InMemoryOrderService();
         var directory = new InMemoryCustomerDirectory();
         var allocation = new AllocationService();
-        var trade = new TradeService(cash, ledger, orders, positions, directory);
+        var trade = TradeServiceTestFactory.Create(cash, ledger, orders, positions, directory);
         var customer = new CustomerService(directory);
         var investment = new InvestmentService();
         var asset = new AssetService(trade, allocation);

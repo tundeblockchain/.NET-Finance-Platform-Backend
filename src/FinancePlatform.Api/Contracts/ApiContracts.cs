@@ -69,30 +69,21 @@ public sealed record BuyRequest(
     Guid AccountId,
     string AssetSymbol,
     decimal Quantity,
-    decimal CashAmount,
-    string IdempotencyKey,
     string? Currency = null,
-    Guid? RootWorkflowId = null,
     Guid? AllocationRequestId = null);
 
 public sealed record SellRequest(
     Guid AccountId,
     string AssetSymbol,
     decimal Quantity,
-    decimal CashAmount,
-    string IdempotencyKey,
     string? Currency = null,
-    Guid? RootWorkflowId = null,
     Guid? AllocationRequestId = null);
 
 public sealed record TradingOrderRequest(
     string AssetSymbol,
     decimal Quantity,
-    decimal CashAmount,
-    string IdempotencyKey,
     string? Currency = null,
-    Guid? TradingAccountId = null,
-    Guid? RootWorkflowId = null);
+    Guid? TradingAccountId = null);
 
 public sealed record TradingTransferToCustomerHttpRequest(
     decimal Amount,
@@ -104,11 +95,24 @@ public sealed record TradingTransferToCustomerHttpRequest(
 
 public sealed record TradingFundsResponse(
     AccountBalanceResponse Cash,
-    IReadOnlyList<PositionResponse> Positions);
+    IReadOnlyList<PositionResponse> Positions,
+    decimal PositionsMarketValue,
+    decimal TotalEquity);
 
 public sealed record PositionResponse(
     string AssetSymbol,
-    decimal Quantity);
+    decimal Quantity,
+    decimal? LastPrice = null,
+    decimal? MarketValue = null,
+    DateTimeOffset? PriceObservedUtc = null);
+
+public sealed record PortfolioResponse(
+    Guid TradingAccountId,
+    string Currency,
+    decimal CashAvailable,
+    decimal PositionsMarketValue,
+    decimal TotalEquity,
+    IReadOnlyList<PositionResponse> Positions);
 
 public sealed record TradeHistoryItemResponse(
     Guid OrderId,
@@ -117,9 +121,13 @@ public sealed record TradeHistoryItemResponse(
     string Side,
     decimal Quantity,
     decimal? LimitPrice,
+    decimal? FillPrice,
+    string? Provider,
+    string? ExternalOrderId,
     string Status,
     DateTimeOffset CreatedUtc,
-    DateTimeOffset? SubmittedUtc);
+    DateTimeOffset? SubmittedUtc,
+    DateTimeOffset? FilledUtc);
 
 public sealed record WorkflowAcceptedResponse(
     Guid TriggerId,

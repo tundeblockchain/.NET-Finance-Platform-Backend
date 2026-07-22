@@ -37,7 +37,7 @@ The script applies scripts in this order:
 ```
 SqlServer/
 ├── 00_CreateDatabase.sql
-├── Tables/           # Account.sql, Order.sql, SystemEventTrigger.sql, …
+├── Tables/           # Account.sql, Order.sql, AssetPrice.sql, SystemEventTrigger.sql, …
 ├── Archives/         # Account_a.sql, Order_a.sql, … (no trigger archives)
 └── Procedures/
     ├── Account/              # get_Account_f.sql, Account_u.sql

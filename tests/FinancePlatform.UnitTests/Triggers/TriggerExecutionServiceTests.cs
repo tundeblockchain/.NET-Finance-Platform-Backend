@@ -53,7 +53,7 @@ public class TriggerExecutionServiceTests
             && t.ParentTriggerId == root.Id
             && t.Status == TriggerStatus.Completed);
 
-        harness.Cash.GetSettled(accountId, "GBP").Should().Be(0m);
+        harness.Cash.GetSettled(accountId, "GBP").Should().Be(50m);
         harness.Trading.GetPosition(accountId, "VWRL").Should().Be(2m);
     }
 
@@ -158,7 +158,7 @@ public class TriggerExecutionServiceTests
 
         harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.DepositCash && t.Status == TriggerStatus.Completed);
         harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.BuyAsset && t.Status == TriggerStatus.Completed);
-        harness.Cash.GetSettled(accountId, "GBP").Should().Be(0m);
+        harness.Cash.GetSettled(accountId, "GBP").Should().Be(200m);
         harness.Trading.GetPosition(accountId, "VWRL").Should().Be(3m);
     }
 }
