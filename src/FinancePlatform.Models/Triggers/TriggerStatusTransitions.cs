@@ -19,7 +19,7 @@ public static class TriggerStatusTransitions
             TriggerStatus.Compensation
         ],
         [TriggerStatus.Retry] = [TriggerStatus.Pending],
-        [TriggerStatus.Failed] = [TriggerStatus.Compensation],
+        [TriggerStatus.Failed] = [TriggerStatus.Compensation, TriggerStatus.Pending],
         [TriggerStatus.Completed] = [],
         [TriggerStatus.Compensation] = [TriggerStatus.Completed, TriggerStatus.Failed]
     };

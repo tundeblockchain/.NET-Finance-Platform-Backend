@@ -12,4 +12,9 @@ public sealed class TriggerRetryOptions
     /// Jitter as a fraction of the computed delay (0.2 = ±20%).
     /// </summary>
     public double JitterFactor { get; set; } = 0.2;
+
+    /// <summary>
+    /// Maximum claim attempts before a trigger is marked Failed instead of retried.
+    /// </summary>
+    public int MaxAttempts { get; set; } = 10;
 }
