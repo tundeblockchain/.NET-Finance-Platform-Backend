@@ -49,7 +49,11 @@ public class DepositWorkflowTests
         cash.GetOrCreateBalance(accountId, "GBP").IsLocked.Should().BeFalse();
         ledger.EntryCount.Should().Be(1);
         ledger.FindByIdempotencyKey("wf-deposit-1:ledger").Should().NotBeNull();
-        raiser.Raised.Should().BeEmpty();
+        raiser.Raised.Should().ContainSingle(t =>
+            t.TriggerCode == TriggerCodes.BuyAsset
+            && t.QueueName == QueueNames.Trading
+            && t.PayloadJson.Contains("\"Quantity\":1")
+            && !t.PayloadJson.Contains("\"CashAmount\":150"));
     }
 
     [Fact]

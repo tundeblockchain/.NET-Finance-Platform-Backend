@@ -16,6 +16,9 @@ coverage/
 *.coveragexml
 
 ## Secrets / local overrides
+.env
+.env.local
+.env.*.local
 appsettings.*.local.json
 *.pfx
 

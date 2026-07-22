@@ -60,6 +60,10 @@ public sealed class OrderRepository(IDbConnectionFactory connectionFactory) : IO
         decimal? limitPrice,
         OrderStatus status,
         string changedBy,
+        decimal? fillPrice = null,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null,
         CancellationToken cancellationToken = default)
     {
         var procedure = status == OrderStatus.Filled ? "SubmitOrder" : "CreateOrder";
@@ -67,21 +71,40 @@ public sealed class OrderRepository(IDbConnectionFactory connectionFactory) : IO
         await using var connection = connectionFactory.CreateConnection();
         await connection.OpenAsync(cancellationToken);
 
+        object args = status == OrderStatus.Filled
+            ? new
+            {
+                IdempotencyKey = idempotencyKey,
+                AccountId = accountId,
+                TriggerId = triggerId,
+                AllocationRequestId = allocationRequestId,
+                AssetSymbol = assetSymbol,
+                Side = (int)side,
+                Quantity = quantity,
+                LimitPrice = limitPrice,
+                FillPrice = fillPrice,
+                ExternalOrderId = externalOrderId,
+                Provider = provider,
+                FilledUtc = filledUtc,
+                ChangedBy = changedBy
+            }
+            : new
+            {
+                IdempotencyKey = idempotencyKey,
+                AccountId = accountId,
+                TriggerId = triggerId,
+                AllocationRequestId = allocationRequestId,
+                AssetSymbol = assetSymbol,
+                Side = (int)side,
+                Quantity = quantity,
+                LimitPrice = limitPrice,
+                ChangedBy = changedBy
+            };
+
         var row = await connection.QuerySingleAsync<OrderWithFlag>(
             new CommandDefinition(
                 procedure,
-                new
-                {
-                    IdempotencyKey = idempotencyKey,
-                    AccountId = accountId,
-                    TriggerId = triggerId,
-                    AllocationRequestId = allocationRequestId,
-                    AssetSymbol = assetSymbol,
-                    Side = (int)side,
-                    Quantity = quantity,
-                    LimitPrice = limitPrice,
-                    ChangedBy = changedBy
-                },
+                args,
                 commandType: CommandType.StoredProcedure,
                 cancellationToken: cancellationToken));
 
@@ -130,10 +153,14 @@ public sealed class OrderRepository(IDbConnectionFactory connectionFactory) : IO
                     Side = (int)entity.Side,
                     entity.Quantity,
                     entity.LimitPrice,
+                    entity.FillPrice,
+                    entity.ExternalOrderId,
+                    entity.Provider,
                     Status = (int)entity.Status,
                     entity.IdempotencyKey,
                     entity.CreatedUtc,
                     entity.SubmittedUtc,
+                    entity.FilledUtc,
                     entity.ChangedBy
                 },
                 commandType: CommandType.StoredProcedure,
@@ -150,10 +177,14 @@ public sealed class OrderRepository(IDbConnectionFactory connectionFactory) : IO
         public int Side { get; init; }
         public decimal Quantity { get; init; }
         public decimal? LimitPrice { get; init; }
+        public decimal? FillPrice { get; init; }
+        public string? ExternalOrderId { get; init; }
+        public string? Provider { get; init; }
         public int Status { get; init; }
         public string IdempotencyKey { get; init; } = "";
         public DateTimeOffset CreatedUtc { get; init; }
         public DateTimeOffset? SubmittedUtc { get; init; }
+        public DateTimeOffset? FilledUtc { get; init; }
         public DateTimeOffset DateModified { get; init; }
         public string ChangedBy { get; init; } = "";
         public bool AlreadyApplied { get; init; }
@@ -168,10 +199,14 @@ public sealed class OrderRepository(IDbConnectionFactory connectionFactory) : IO
             Side = (OrderSide)Side,
             Quantity = Quantity,
             LimitPrice = LimitPrice,
+            FillPrice = FillPrice,
+            ExternalOrderId = ExternalOrderId,
+            Provider = Provider,
             Status = (OrderStatus)Status,
             IdempotencyKey = IdempotencyKey,
             CreatedUtc = CreatedUtc,
             SubmittedUtc = SubmittedUtc,
+            FilledUtc = FilledUtc,
             DateModified = DateModified,
             ChangedBy = ChangedBy
         };

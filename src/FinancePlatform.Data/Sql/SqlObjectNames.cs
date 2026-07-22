@@ -16,6 +16,7 @@ public static class SqlObjectNames
         "CashReservation",
         "Position",
         "Order",
+        "AssetPrice",
         "LedgerEntry",
         "Customer",
         "CustomerAddress",

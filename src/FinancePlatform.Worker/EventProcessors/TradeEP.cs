@@ -25,7 +25,7 @@ public sealed class TradeEP(ITradeService tradeService) : ITriggerEventProcessor
             || absolute is TriggerCodes.BuyAsset or TriggerCodes.SellAsset;
     }
 
-    public Task<TriggerHandlerResult> ProcessAsync(
+    public async Task<TriggerHandlerResult> ProcessAsync(
         TriggerContext context,
         int triggerCode,
         string payloadJson,
@@ -35,7 +35,7 @@ public sealed class TradeEP(ITradeService tradeService) : ITriggerEventProcessor
         var absolute = TriggerCodes.Absolute(triggerCode);
         var isAction = TriggerCodes.IsAction(triggerCode);
 
-        return Task.FromResult((absolute, isAction) switch
+        return (absolute, isAction) switch
         {
             (TriggerCodes.TradingReceiveMoney, true) => EpResult.From(
                 tradeService.ReceiveMoney(context, RequireTradingReceive(payloadJson)), raiser),
@@ -44,15 +44,15 @@ public sealed class TradeEP(ITradeService tradeService) : ITriggerEventProcessor
             (TriggerCodes.TradingTransferToCustomer, true) => EpResult.From(
                 tradeService.TransferToCustomer(context, RequireTransferToCustomer(payloadJson)), raiser),
             (TriggerCodes.BuyAsset, true) => EpResult.From(
-                tradeService.Buy(context, RequireTrade(payloadJson)), raiser),
+                await tradeService.BuyAsync(context, RequireTrade(payloadJson), cancellationToken), raiser),
             (TriggerCodes.BuyAsset, false) => EpResult.From(
-                tradeService.ReverseBuy(context, RequireTrade(payloadJson)), raiser),
+                await tradeService.ReverseBuyAsync(context, RequireTrade(payloadJson), cancellationToken), raiser),
             (TriggerCodes.SellAsset, true) => EpResult.From(
-                tradeService.Sell(context, RequireTrade(payloadJson)), raiser),
+                await tradeService.SellAsync(context, RequireTrade(payloadJson), cancellationToken), raiser),
             (TriggerCodes.SellAsset, false) => EpResult.From(
-                tradeService.ReverseSell(context, RequireTrade(payloadJson)), raiser),
+                await tradeService.ReverseSellAsync(context, RequireTrade(payloadJson), cancellationToken), raiser),
             _ => TriggerHandlerResult.Failure($"TradeEP does not handle trigger code {triggerCode}.")
-        });
+        };
     }
 
     private static TradingReceiveMoneyRequest RequireTradingReceive(string payloadJson) =>

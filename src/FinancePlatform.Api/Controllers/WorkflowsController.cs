@@ -30,6 +30,27 @@ public sealed class WorkflowsController(IWorkflowEnqueueService workflowsService
         return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }
 
+    [HttpPost("buys")]
+    [EndpointName("EnqueueBuy")]
+    [EndpointSummary("Enqueue buy asset trigger")]
+    [EndpointDescription("Creates a BuyAsset trigger. Account must already have available cash.")]
+    public async Task<ActionResult<WorkflowAcceptedResponse>> EnqueueBuy(
+        [FromBody] BuyRequest body,
+        CancellationToken ct)
+    {
+        await workflowsService.EnqueueBuyAsync(new BuyWorkflowCommand
+        {
+            AccountId = body.AccountId,
+            AssetSymbol = body.AssetSymbol,
+            Quantity = body.Quantity,
+            Currency = body.Currency ?? "GBP",
+            IdempotencyKey = IdempotencyKeys.ForTrade("buy"),
+            AllocationRequestId = body.AllocationRequestId
+        }, ct);
+
+        return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
+    }
+
     [HttpPost("sells")]
     [EndpointName("EnqueueSell")]
     [EndpointSummary("Enqueue sell asset trigger")]
@@ -43,9 +64,8 @@ public sealed class WorkflowsController(IWorkflowEnqueueService workflowsService
             AccountId = body.AccountId,
             AssetSymbol = body.AssetSymbol,
             Quantity = body.Quantity,
-            CashAmount = body.CashAmount,
             Currency = body.Currency ?? "GBP",
-            IdempotencyKey = body.PaymentReference,
+            IdempotencyKey = IdempotencyKeys.ForTrade("sell"),
             AllocationRequestId = body.AllocationRequestId
         }, ct);
 

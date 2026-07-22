@@ -30,7 +30,6 @@ public class WorkflowEnqueueServiceTests
             AccountId = accountId,
             AssetSymbol = "VWRL",
             Quantity = 1m,
-            CashAmount = 50m,
             IdempotencyKey = "api-buy-1"
         });
 
@@ -39,7 +38,6 @@ public class WorkflowEnqueueServiceTests
             AccountId = accountId,
             AssetSymbol = "VWRL",
             Quantity = 1m,
-            CashAmount = 50m,
             IdempotencyKey = "api-sell-1"
         });
 

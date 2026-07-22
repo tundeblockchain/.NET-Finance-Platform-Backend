@@ -5,6 +5,7 @@ using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
+using FinancePlatform.Services.Brokers;
 using FinancePlatform.UnitTests.Triggers.Support;
 using FluentAssertions;
 
@@ -13,7 +14,7 @@ namespace FinancePlatform.UnitTests.Triggers;
 public class TriggerExecutionServiceTests
 {
     [Fact]
-    public async Task Successful_deposit_processor_completes_without_auto_buy()
+    public async Task Successful_processor_completes_and_raises_child_triggers()
     {
         var harness = TriggerExecutionTestHarness.Create();
         var accountId = Guid.NewGuid();
@@ -43,11 +44,21 @@ public class TriggerExecutionServiceTests
 
         await harness.Execution.ExecuteAsync(claimed!);
 
+        var buyClaimed = await harness.Store.TryClaimAsync("Trading", "worker-a", TimeSpan.FromSeconds(30));
+        buyClaimed.Should().NotBeNull();
+        await harness.Execution.ExecuteAsync(buyClaimed!);
+
         var all = harness.Store.GetAll();
         all.Should().Contain(t => t.Id == root.Id && t.Status == TriggerStatus.Completed);
-        all.Should().NotContain(t => t.TriggerCode == TriggerCodes.BuyAsset);
+        all.Should().Contain(t =>
+            t.TriggerCode == TriggerCodes.BuyAsset
+            && t.QueueName == "Trading"
+            && t.ParentTriggerId == root.Id
+            && t.Status == TriggerStatus.Completed);
 
-        harness.Cash.GetSettled(accountId, "GBP").Should().Be(250m);
+        // Simulated default unit price is 100 → 2 shares cost 200; 250 − 200 = 50.
+        harness.Cash.GetSettled(accountId, "GBP").Should().Be(50m);
+        harness.Trading.GetPosition(accountId, "VWRL").Should().Be(2m);
     }
 
     [Fact]
@@ -108,7 +119,56 @@ public class TriggerExecutionServiceTests
     }
 
     [Fact]
-    public async Task Trading_buy_chains_through_investment_and_asset()
+    public async Task Deposit_then_buy_chain_processes_end_to_end()
+    {
+        var harness = TriggerExecutionTestHarness.Create();
+        var accountId = Guid.NewGuid();
+        var rootId = Guid.NewGuid();
+
+        await harness.Store.EnqueueAsync(new EnqueueTriggerCommand
+        {
+            TriggerCode = TriggerCodes.DepositCash,
+            QueueName = "Cash",
+            PayloadJson = JsonSerializer.Serialize(new DepositCashRequest
+            {
+                Amount = 500m,
+                Currency = "GBP",
+                AssetSymbol = "VWRL",
+                Quantity = 3m
+            }),
+            RootWorkflowId = rootId,
+            CorrelationId = rootId,
+            ExternalId = accountId,
+            ExternalType = ExternalEntityType.Account,
+            SourceComponent = "Api",
+            TargetComponent = "Cash",
+            IdempotencyKey = "chain-deposit"
+        });
+
+        for (var i = 0; i < 5; i++)
+        {
+            var cashClaim = await harness.Store.TryClaimAsync("Cash", "w-cash", TimeSpan.FromSeconds(30));
+            if (cashClaim is not null)
+            {
+                await harness.Execution.ExecuteAsync(cashClaim);
+            }
+
+            var tradeClaim = await harness.Store.TryClaimAsync("Trading", "w-trade", TimeSpan.FromSeconds(30));
+            if (tradeClaim is not null)
+            {
+                await harness.Execution.ExecuteAsync(tradeClaim);
+            }
+        }
+
+        harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.DepositCash && t.Status == TriggerStatus.Completed);
+        harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.BuyAsset && t.Status == TriggerStatus.Completed);
+        // Simulated default unit price is 100 → 3 shares cost 300; 500 − 300 = 200.
+        harness.Cash.GetSettled(accountId, "GBP").Should().Be(200m);
+        harness.Trading.GetPosition(accountId, "VWRL").Should().Be(3m);
+    }
+
+    [Fact]
+    public async Task Trading_buy_executes_via_broker_against_trading_account()
     {
         var harness = TriggerExecutionTestHarness.Create();
         var provisioned = harness.Customer.CreateCustomer(new CreateCustomerRequest
@@ -134,8 +194,7 @@ public class TriggerExecutionServiceTests
             {
                 AssetSymbol = "VWRL",
                 Quantity = 3m,
-                Currency = "GBP",
-                CashAmount = 500m
+                Currency = "GBP"
             }),
             RootWorkflowId = Guid.NewGuid(),
             CorrelationId = Guid.NewGuid(),
@@ -146,16 +205,11 @@ public class TriggerExecutionServiceTests
             IdempotencyKey = "chain-buy"
         });
 
-        await harness.DrainQueuesAsync(
-            QueueNames.Trading,
-            QueueNames.Investment,
-            QueueNames.AssetTrading);
+        await harness.DrainQueuesAsync(QueueNames.Trading);
 
         harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.BuyAsset && t.Status == TriggerStatus.Completed);
-        harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.AssetBuyAsset && t.Status == TriggerStatus.Completed);
-
-        var investmentAccount = harness.Directory.FindInvestmentAccountByTradingAccount(tradingAccountId);
-        investmentAccount.Should().NotBeNull();
-        harness.Positions.GetQuantity(investmentAccount!.Id, "VWRL").Should().Be(3m);
+        harness.Cash.GetSettled(tradingAccountId, "GBP")
+            .Should().Be(500m - (3m * SimulatedBrokerTradingProvider.DefaultUnitPrice));
+        harness.Trading.GetPosition(tradingAccountId, "VWRL").Should().Be(3m);
     }
 }

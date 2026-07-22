@@ -4,6 +4,7 @@ using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
+using FinancePlatform.Services.Brokers;
 using FinancePlatform.Services.Triggers;
 using FinancePlatform.UnitTests.Triggers.Support;
 using FluentAssertions;
@@ -13,7 +14,7 @@ namespace FinancePlatform.UnitTests.Trading;
 public class BuyAssetChainTests
 {
     [Fact]
-    public async Task Buy_chains_through_investment_to_asset_and_holds_units_on_investment_account()
+    public async Task Buy_executes_via_broker_and_holds_units_on_trading_account()
     {
         var harness = TriggerExecutionTestHarness.Create();
         var provisioned = harness.Customer.CreateCustomer(new CreateCustomerRequest
@@ -39,8 +40,7 @@ public class BuyAssetChainTests
             {
                 AssetSymbol = "VWRL",
                 Quantity = 2m,
-                Currency = "GBP",
-                CashAmount = 150m
+                Currency = "GBP"
             }),
             RootWorkflowId = Guid.NewGuid(),
             CorrelationId = Guid.NewGuid(),
@@ -51,15 +51,14 @@ public class BuyAssetChainTests
             IdempotencyKey = "buy-chain-1"
         });
 
-        await harness.DrainQueuesAsync(
-            QueueNames.Trading,
-            QueueNames.Investment,
-            QueueNames.AssetTrading);
+        await harness.DrainQueuesAsync(QueueNames.Trading);
 
-        var investmentAccount = harness.Directory.FindInvestmentAccountByTradingAccount(tradingAccountId);
-        investmentAccount.Should().NotBeNull();
-        harness.Positions.GetQuantity(investmentAccount!.Id, "VWRL").Should().Be(2m);
-        harness.Directory.GetTradingSettled(tradingAccountId).Should().Be(350m);
-        harness.Orders.GetByAccount(investmentAccount.Id).Should().ContainSingle(o => o.Status == OrderStatus.Filled);
+        harness.Store.GetAll().Should().Contain(t => t.TriggerCode == TriggerCodes.BuyAsset && t.Status == TriggerStatus.Completed);
+        harness.Trading.GetPosition(tradingAccountId, "VWRL").Should().Be(2m);
+        harness.Cash.GetSettled(tradingAccountId, "GBP")
+            .Should().Be(500m - (2m * SimulatedBrokerTradingProvider.DefaultUnitPrice));
+        harness.Orders.GetByAccount(tradingAccountId).Should().ContainSingle(o =>
+            o.Status == OrderStatus.Filled
+            && o.FillPrice == SimulatedBrokerTradingProvider.DefaultUnitPrice);
     }
 }

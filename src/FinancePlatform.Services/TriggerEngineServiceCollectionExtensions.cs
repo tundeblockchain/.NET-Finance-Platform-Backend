@@ -1,12 +1,15 @@
 using FinancePlatform.Data;
 using FinancePlatform.Services.Allocation;
 using FinancePlatform.Services.Asset;
+using FinancePlatform.Services.Brokers;
 using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
+using FinancePlatform.Services.Portfolio;
 using FinancePlatform.Services.Positions;
+using FinancePlatform.Services.Pricing;
 using FinancePlatform.Services.Trade;
 using FinancePlatform.Services.Triggers;
 using FinancePlatform.Services.Workflows;
@@ -42,6 +45,7 @@ public static class TriggerEngineServiceCollectionExtensions
             services.AddInMemoryPersistence();
         }
 
+        services.AddBrokerTrading(configuration);
         return AddTriggerEngineCore(services, useSqlServer);
     }
 
@@ -51,6 +55,7 @@ public static class TriggerEngineServiceCollectionExtensions
     public static IServiceCollection AddInMemoryTriggerEngine(this IServiceCollection services)
     {
         services.AddInMemoryPersistence();
+        services.AddSingleton<IBrokerTradingProvider, SimulatedBrokerTradingProvider>();
         return AddTriggerEngineCore(services, useSqlServer: false);
     }
 
@@ -64,6 +69,7 @@ public static class TriggerEngineServiceCollectionExtensions
             services.AddSingleton<IPositionService, SqlPositionService>();
             services.AddSingleton<IOrderService, SqlOrderService>();
             services.AddSingleton<IAllocationService, SqlAllocationService>();
+            services.AddSingleton<IAssetPriceService, SqlAssetPriceService>();
             services.AddSingleton<ICustomerDirectory, SqlCustomerDirectory>();
             services.AddSingleton<IInvestmentInstructionStore, SqlInvestmentInstructionStore>();
         }
@@ -74,9 +80,12 @@ public static class TriggerEngineServiceCollectionExtensions
             services.AddSingleton<IPositionService, InMemoryPositionService>();
             services.AddSingleton<IOrderService, InMemoryOrderService>();
             services.AddSingleton<IAllocationService, AllocationService>();
+            services.AddSingleton<IAssetPriceService, InMemoryAssetPriceService>();
             services.AddSingleton<ICustomerDirectory, InMemoryCustomerDirectory>();
             services.AddSingleton<IInvestmentInstructionStore, InMemoryInvestmentInstructionStore>();
         }
+
+        services.AddSingleton<IPortfolioService, PortfolioService>();
 
         // Main component services (EP → Service → Models)
         services.AddSingleton<ICashComponentService, CashComponentService>();

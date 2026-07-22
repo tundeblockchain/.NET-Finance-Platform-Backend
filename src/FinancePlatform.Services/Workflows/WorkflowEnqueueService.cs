@@ -48,8 +48,7 @@ public sealed class WorkflowEnqueueService(TriggerClaimService claimService) : I
         {
             command.AssetSymbol,
             command.Quantity,
-            command.Currency,
-            command.CashAmount
+            command.Currency
         });
 
         return claimService.EnqueueAsync(new EnqueueTriggerCommand
@@ -77,8 +76,7 @@ public sealed class WorkflowEnqueueService(TriggerClaimService claimService) : I
         {
             command.AssetSymbol,
             command.Quantity,
-            command.Currency,
-            command.CashAmount
+            command.Currency
         });
 
         return claimService.EnqueueAsync(new EnqueueTriggerCommand

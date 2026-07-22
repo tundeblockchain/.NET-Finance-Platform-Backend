@@ -6,7 +6,7 @@ namespace FinancePlatform.Services.Orders;
 public interface IOrderService
 {
     /// <summary>
-    /// Creates and submits an order. Idempotent by key. In-memory fills immediately.
+    /// Creates and records an order. Idempotent by key.
     /// </summary>
     OrderSubmitResult TrySubmit(
         string idempotencyKey,
@@ -16,7 +16,13 @@ public interface IOrderService
         string assetSymbol,
         OrderSide side,
         decimal quantity,
-        decimal? limitPrice);
+        decimal? limitPrice,
+        decimal? fillPrice = null,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null);
+
+    Order? FindByIdempotencyKey(string idempotencyKey);
 
     OrderSubmitResult TryCreate(
         string idempotencyKey,

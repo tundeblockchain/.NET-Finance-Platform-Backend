@@ -37,8 +37,8 @@ The script applies scripts in this order:
 ```
 SqlServer/
 ├── 00_CreateDatabase.sql
-├── Tables/           # Account.sql, TradingAccount.sql, InvestmentAccount.sql, InvestmentInstruction.sql, …
-├── Archives/         # Account_a.sql, InvestmentAccount_a.sql, InvestmentInstruction_a.sql, …
+├── Tables/           # Account.sql, TradingAccount.sql, InvestmentAccount.sql, InvestmentInstruction.sql, AssetPrice.sql, SystemEventTrigger.sql, …
+├── Archives/         # Account_a.sql, InvestmentAccount_a.sql, InvestmentInstruction_a.sql, … (no trigger archives)
 └── Procedures/
     ├── Account/
     ├── InvestmentAccount/       # Ensure, Credit/Debit, get_*, _u

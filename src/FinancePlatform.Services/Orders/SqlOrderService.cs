@@ -15,8 +15,25 @@ public sealed class SqlOrderService(IOrderRepository orderRepository) : IOrderSe
         string assetSymbol,
         OrderSide side,
         decimal quantity,
-        decimal? limitPrice) =>
-        Create(idempotencyKey, accountId, triggerId, allocationRequestId, assetSymbol, side, quantity, limitPrice, OrderStatus.Filled);
+        decimal? limitPrice,
+        decimal? fillPrice = null,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null) =>
+        Create(
+            idempotencyKey,
+            accountId,
+            triggerId,
+            allocationRequestId,
+            assetSymbol,
+            side,
+            quantity,
+            limitPrice,
+            OrderStatus.Filled,
+            fillPrice,
+            externalOrderId,
+            provider,
+            filledUtc);
 
     public OrderSubmitResult TryCreate(
         string idempotencyKey,
@@ -27,7 +44,19 @@ public sealed class SqlOrderService(IOrderRepository orderRepository) : IOrderSe
         OrderSide side,
         decimal quantity,
         decimal? limitPrice) =>
-        Create(idempotencyKey, accountId, triggerId, allocationRequestId, assetSymbol, side, quantity, limitPrice, OrderStatus.Submitted);
+        Create(
+            idempotencyKey,
+            accountId,
+            triggerId,
+            allocationRequestId,
+            assetSymbol,
+            side,
+            quantity,
+            limitPrice,
+            OrderStatus.Submitted);
+
+    public Order? FindByIdempotencyKey(string idempotencyKey) =>
+        orderRepository.GetByIdempotencyKeyAsync(idempotencyKey).GetAwaiter().GetResult();
 
     public Order? GetById(Guid orderId) =>
         orderRepository.GetAsync(orderId).GetAwaiter().GetResult();
@@ -47,7 +76,11 @@ public sealed class SqlOrderService(IOrderRepository orderRepository) : IOrderSe
         OrderSide side,
         decimal quantity,
         decimal? limitPrice,
-        OrderStatus status)
+        OrderStatus status,
+        decimal? fillPrice = null,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(idempotencyKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(assetSymbol);
@@ -69,7 +102,11 @@ public sealed class SqlOrderService(IOrderRepository orderRepository) : IOrderSe
                     quantity,
                     limitPrice,
                     status,
-                    ChangeActors.Broker)
+                    ChangeActors.Broker,
+                    fillPrice,
+                    externalOrderId,
+                    provider,
+                    filledUtc)
                 .GetAwaiter()
                 .GetResult();
 

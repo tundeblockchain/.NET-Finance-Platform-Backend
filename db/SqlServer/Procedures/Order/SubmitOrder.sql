@@ -1,7 +1,7 @@
 /*
   Procedure : dbo.SubmitOrder
-  Purpose   : Idempotently creates or updates an Order as Submitted then Filled for the in-process broker path. Archives on update via Order_a when the row already exists.
-  Dated     : 2026-07-12
+  Purpose   : Idempotently creates an Order as Filled for the in-process / broker-backed path.
+  Dated     : 2026-07-14
 */
 SET ANSI_NULLS ON;
 SET QUOTED_IDENTIFIER ON;
@@ -16,6 +16,10 @@ CREATE OR ALTER PROCEDURE dbo.SubmitOrder
     @Side INT,
     @Quantity DECIMAL(18, 8),
     @LimitPrice DECIMAL(18, 8) = NULL,
+    @FillPrice DECIMAL(18, 8) = NULL,
+    @ExternalOrderId NVARCHAR(100) = NULL,
+    @Provider NVARCHAR(64) = NULL,
+    @FilledUtc DATETIMEOFFSET = NULL,
     @ChangedBy NVARCHAR(100) = N'broker'
 AS
 BEGIN
@@ -47,10 +51,12 @@ BEGIN
 
     INSERT INTO dbo.[Order] (
         Id, AccountId, AllocationRequestId, TriggerId, AssetSymbol, Side, Quantity, LimitPrice,
-        Status, IdempotencyKey, CreatedUtc, SubmittedUtc, DateModified, ChangedBy)
+        FillPrice, ExternalOrderId, Provider, Status, IdempotencyKey, CreatedUtc, SubmittedUtc, FilledUtc,
+        DateModified, ChangedBy)
     VALUES (
         @Id, @AccountId, @AllocationRequestId, @TriggerId, @AssetSymbol, @Side, @Quantity, @LimitPrice,
-        3, /* Filled */ @IdempotencyKey, @Now, @Now, @Now, @ChangedBy);
+        @FillPrice, @ExternalOrderId, @Provider, 3, /* Filled */ @IdempotencyKey, @Now, @Now,
+        COALESCE(@FilledUtc, @Now), @Now, @ChangedBy);
 
     SELECT *, CAST(0 AS BIT) AS AlreadyApplied FROM dbo.[Order] WHERE Id = @Id;
     COMMIT TRAN;

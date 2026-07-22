@@ -22,6 +22,10 @@ public interface IOrderRepository
         decimal? limitPrice,
         OrderStatus status,
         string changedBy,
+        decimal? fillPrice = null,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null,
         CancellationToken cancellationToken = default);
 
     Task<bool> MarkFilledAsync(Guid orderId, string changedBy, CancellationToken cancellationToken = default);
