@@ -1,4 +1,5 @@
 using FinancePlatform.Services.Cash;
+using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Positions;
 using FinancePlatform.Services.Pricing;
 
@@ -7,13 +8,16 @@ namespace FinancePlatform.Services.Portfolio;
 public sealed class PortfolioService(
     IPositionService positionService,
     IAssetPriceService assetPriceService,
-    ICashService cashService) : IPortfolioService
+    ICashService cashService,
+    ICustomerDirectory customerDirectory) : IPortfolioService
 {
     public PortfolioSnapshot GetPortfolio(Guid tradingAccountId, string currency)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(currency);
 
-        var holdings = positionService.GetByAccount(tradingAccountId);
+        var positionAccountId = customerDirectory.FindInvestmentAccountByTradingAccount(tradingAccountId)?.Id
+            ?? tradingAccountId;
+        var holdings = positionService.GetByAccount(positionAccountId);
         var prices = assetPriceService.GetLatestMany(holdings.Select(h => h.AssetSymbol));
 
         var lines = new List<PortfolioPositionLine>(holdings.Count);

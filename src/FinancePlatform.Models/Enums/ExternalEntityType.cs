@@ -9,5 +9,6 @@ public enum ExternalEntityType
     Account = 2,
     Transfer = 3,
     CustomerAccount = 4,
-    TradingAccount = 5
+    TradingAccount = 5,
+    InvestmentAccount = 6
 }

@@ -111,9 +111,13 @@ public sealed class OrderRepository(IDbConnectionFactory connectionFactory) : IO
         return (row.ToOrder(), row.AlreadyApplied);
     }
 
-    public async Task<bool> MarkFilledAsync(
+    public async Task<Order?> MarkFilledAsync(
         Guid orderId,
         string changedBy,
+        decimal? fillPrice = null,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null,
         CancellationToken cancellationToken = default)
     {
         await using var connection = connectionFactory.CreateConnection();
@@ -121,17 +125,24 @@ public sealed class OrderRepository(IDbConnectionFactory connectionFactory) : IO
 
         try
         {
-            var order = await connection.QuerySingleOrDefaultAsync<Order>(
+            return await connection.QuerySingleOrDefaultAsync<Order>(
                 new CommandDefinition(
                     "MarkOrderFilled",
-                    new { Id = orderId, ChangedBy = changedBy },
+                    new
+                    {
+                        Id = orderId,
+                        FillPrice = fillPrice,
+                        ExternalOrderId = externalOrderId,
+                        Provider = provider,
+                        FilledUtc = filledUtc,
+                        ChangedBy = changedBy
+                    },
                     commandType: CommandType.StoredProcedure,
                     cancellationToken: cancellationToken));
-            return order is not null;
         }
         catch
         {
-            return false;
+            return null;
         }
     }
 

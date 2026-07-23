@@ -17,4 +17,10 @@ public sealed class TradeAssetRequest
     /// Live cash movement uses broker fill notional.
     /// </summary>
     public decimal? CashAmount { get; set; }
+
+    /// <summary>
+    /// Optional. When set (investment → asset path), Trade fills this existing Submitted order
+    /// instead of inserting a new Order row.
+    /// </summary>
+    public Guid? OrderId { get; set; }
 }

@@ -85,6 +85,8 @@ public class CustomerParkFlowTests
 
         harness.Directory.GetCustomerSettled(customerAccountId).Should().Be(100m);
         harness.Directory.GetTradingSettled(tradingAccountId).Should().Be(400m);
+        harness.Cash.GetSettled(tradingAccountId, "GBP").Should().Be(400m);
+        harness.Cash.GetAvailable(tradingAccountId, "GBP").Should().Be(400m);
     }
 
     private static async Task DrainCustomerAndTrading(TriggerExecutionTestHarness harness)

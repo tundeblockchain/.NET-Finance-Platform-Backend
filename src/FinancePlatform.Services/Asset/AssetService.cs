@@ -4,6 +4,7 @@ using FinancePlatform.Models.Dtos;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Services.Allocation;
+using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Trade;
 
 namespace FinancePlatform.Services.Asset;
@@ -13,7 +14,8 @@ namespace FinancePlatform.Services.Asset;
 /// </summary>
 public sealed class AssetService(
     ITradeService tradeService,
-    IAllocationService allocationService) : IAssetService
+    IAllocationService allocationService,
+    IInvestmentInstructionStore instructionStore) : IAssetService
 {
     public async Task<ComponentOperationResult> BuyAsync(
         TriggerContext context,
@@ -26,26 +28,43 @@ public sealed class AssetService(
         }
 
         var result = await tradeService.BuyAsync(context, ToTradeRequest(request), cancellationToken);
-        if (result.ResultCode == TriggerResultCode.Success
-            && context.AllocationRequestId is { } allocationId)
+        if (result.ResultCode == TriggerResultCode.Success)
         {
-            allocationService.MarkCompleted(allocationId);
+            CompleteInstruction(request);
+            if (context.AllocationRequestId is { } allocationId)
+            {
+                allocationService.MarkCompleted(allocationId);
+            }
+        }
+        else if (result.ResultCode == TriggerResultCode.Failure && request.InstructionId != Guid.Empty)
+        {
+            instructionStore.TryUpdateStatus(request.InstructionId, InvestmentInstructionStatus.Failed);
         }
 
         return result;
     }
 
-    public Task<ComponentOperationResult> SellAsync(
+    public async Task<ComponentOperationResult> SellAsync(
         TriggerContext context,
         AssetOrderRequest request,
         CancellationToken cancellationToken = default)
     {
         if (request.Quantity <= 0)
         {
-            return Task.FromResult(ComponentOperationResult.Failure("Asset sell requires a positive quantity."));
+            return ComponentOperationResult.Failure("Asset sell requires a positive quantity.");
         }
 
-        return tradeService.SellAsync(context, ToTradeRequest(request), cancellationToken);
+        var result = await tradeService.SellAsync(context, ToTradeRequest(request), cancellationToken);
+        if (result.ResultCode == TriggerResultCode.Success)
+        {
+            CompleteInstruction(request);
+        }
+        else if (result.ResultCode == TriggerResultCode.Failure && request.InstructionId != Guid.Empty)
+        {
+            instructionStore.TryUpdateStatus(request.InstructionId, InvestmentInstructionStatus.Failed);
+        }
+
+        return result;
     }
 
     public async Task<ComponentOperationResult> ReverseBuyAsync(
@@ -61,10 +80,30 @@ public sealed class AssetService(
         var result = await tradeService.ReverseBuyAsync(context, ToTradeRequest(request), cancellationToken);
         if (result.ResultCode == TriggerResultCode.Success)
         {
+            if (request.InstructionId != Guid.Empty)
+            {
+                instructionStore.TryUpdateStatus(request.InstructionId, InvestmentInstructionStatus.Failed);
+            }
+
             return ComponentOperationResult.Success(resultJson: """{"status":"asset-buy-reversed"}""");
         }
 
         return result;
+    }
+
+    private void CompleteInstruction(AssetOrderRequest request)
+    {
+        if (request.InstructionId == Guid.Empty)
+        {
+            return;
+        }
+
+        if (request.OrderId != Guid.Empty)
+        {
+            instructionStore.TrySetOrderId(request.InstructionId, request.OrderId);
+        }
+
+        instructionStore.TryUpdateStatus(request.InstructionId, InvestmentInstructionStatus.Completed);
     }
 
     private static TradeAssetRequest ToTradeRequest(AssetOrderRequest request)
@@ -75,7 +114,8 @@ public sealed class AssetService(
             AssetSymbol = request.AssetSymbol,
             Quantity = request.Quantity,
             Currency = request.Currency,
-            CashAmount = cashHint > 0 ? cashHint : null
+            CashAmount = cashHint > 0 ? cashHint : null,
+            OrderId = request.OrderId == Guid.Empty ? null : request.OrderId
         };
     }
 }

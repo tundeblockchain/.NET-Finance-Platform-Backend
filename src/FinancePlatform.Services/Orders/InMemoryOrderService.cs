@@ -118,17 +118,33 @@ public sealed class InMemoryOrderService : IOrderService
     public Order? GetById(Guid orderId) =>
         _ordersByKey.Values.FirstOrDefault(o => o.Id == orderId) is { } order ? Clone(order) : null;
 
-    public bool TryMarkFilled(Guid orderId)
+    public OrderSubmitResult TryFill(
+        Guid orderId,
+        decimal fillPrice,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null)
     {
         var order = _ordersByKey.Values.FirstOrDefault(o => o.Id == orderId);
         if (order is null)
         {
-            return false;
+            return OrderSubmitResult.Failure("Order was not found.");
         }
 
+        if (order.Status == OrderStatus.Filled)
+        {
+            return OrderSubmitResult.Success(Clone(order), alreadyApplied: true);
+        }
+
+        var now = DateTimeOffset.UtcNow;
         order.Status = OrderStatus.Filled;
-        order.DateModified = DateTimeOffset.UtcNow;
-        return true;
+        order.FillPrice = fillPrice;
+        order.ExternalOrderId = externalOrderId;
+        order.Provider = provider;
+        order.FilledUtc = filledUtc ?? now;
+        order.DateModified = now;
+        order.ChangedBy = ChangeActors.Broker;
+        return OrderSubmitResult.Success(Clone(order));
     }
 
     public int OrderCount => _ordersByKey.Count;

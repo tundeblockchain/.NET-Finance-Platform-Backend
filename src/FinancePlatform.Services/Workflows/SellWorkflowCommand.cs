@@ -4,6 +4,10 @@ namespace FinancePlatform.Services.Workflows;
 
 public sealed class SellWorkflowCommand
 {
+    /// <summary>Customer id; when 0, resolved from the trading account.</summary>
+    public int CustomerId { get; init; }
+
+    /// <summary>Trading account whose investment account holds the position.</summary>
     public required Guid AccountId { get; init; }
 
     public required string AssetSymbol { get; init; }
@@ -18,5 +22,5 @@ public sealed class SellWorkflowCommand
 
     public Guid? AllocationRequestId { get; init; }
 
-    public ExternalEntityType ExternalType { get; init; } = ExternalEntityType.Account;
+    public ExternalEntityType ExternalType { get; init; } = ExternalEntityType.TradingAccount;
 }

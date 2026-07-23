@@ -32,6 +32,10 @@ public class TradingTransferToCustomerTests
             300m,
             Guid.NewGuid(),
             "seed-trading");
+        var seedTriggerId = Guid.NewGuid();
+        harness.Cash.TryAcquireLock(tradingAccountId, "GBP", seedTriggerId, Guid.NewGuid(), TimeSpan.FromMinutes(1));
+        harness.Cash.TryDeposit("seed-cash", tradingAccountId, "GBP", 300m, seedTriggerId);
+        harness.Cash.TryReleaseLock(tradingAccountId, "GBP", seedTriggerId);
 
         await harness.Store.EnqueueAsync(new EnqueueTriggerCommand
         {
