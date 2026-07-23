@@ -4,6 +4,7 @@ using FinancePlatform.Models.Allocation;
 using FinancePlatform.Models.Components;
 using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Dtos;
+using FinancePlatform.Models.Entities;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
@@ -60,7 +61,16 @@ public sealed class TradeService(
         }
 
         // Keep executable cash ledger in sync so Buy/Sell can reserve against the trading account id.
-        SyncCashDeposit(tradingAccount.Id, request.Currency, request.Amount, context);
+        if (!TrySyncCashDeposit(tradingAccount.Id, request.Currency, request.Amount, context))
+        {
+            customerDirectory.TryDebitTradingAccount(
+                tradingAccount.Id,
+                request.Amount,
+                context.TriggerId,
+                $"{context.IdempotencyKey}:trading-credit-rollback");
+            return ComponentOperationResult.Failure(
+                "Unable to sync executable cash ledger for trading account.");
+        }
 
         // Point A: park-only — Trading UI will later create an investment instruction and distribute.
         if (request.ParkOnly)
@@ -140,7 +150,16 @@ public sealed class TradeService(
             return ComponentOperationResult.Failure("Insufficient funds in trading account.");
         }
 
-        SyncCashWithdraw(tradingAccount.Id, request.Currency, request.Amount, context);
+        if (!TrySyncCashWithdraw(tradingAccount.Id, request.Currency, request.Amount, context))
+        {
+            customerDirectory.TryCreditTradingAccount(
+                tradingAccount.Id,
+                request.Amount,
+                context.TriggerId,
+                $"{context.IdempotencyKey}:trading-transfer-debit-rollback");
+            return ComponentOperationResult.Failure(
+                "Unable to sync executable cash ledger for trading transfer.");
+        }
 
         var receivePayload = JsonSerializer.Serialize(new CustomerReceiveMoneyRequest
         {
@@ -179,13 +198,16 @@ public sealed class TradeService(
         var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
         var reserveKey = $"{context.IdempotencyKey}:reserve";
         var settleKey = $"{context.IdempotencyKey}:settle";
-        var orderKey = $"{context.IdempotencyKey}:order";
         var positionKey = $"{context.IdempotencyKey}:position";
         var ledgerKey = $"{context.IdempotencyKey}:ledger";
         var referencePrice = ResolveReferencePrice(request);
 
-        // Idempotent retry: local order already recorded after a prior successful buy.
-        if (orderService.FindByIdempotencyKey(orderKey) is not null)
+        if (!TryResolveOrderKey(context, request, OrderSide.Buy, out var orderKey, out var existingOrder, out var resolveError))
+        {
+            return ComponentOperationResult.Failure(resolveError ?? "Unable to resolve order.");
+        }
+
+        if (existingOrder?.Status == OrderStatus.Filled)
         {
             return ComponentOperationResult.Success(resultJson: """{"status":"bought","idempotent":true}""");
         }
@@ -210,6 +232,12 @@ public sealed class TradeService(
             AssetPriceSource.Quote,
             quote.Provider,
             observedUtc: quote.ObservedUtc);
+
+        // Heal TradingAccount → CashBalance drift so parked funds remain buyable.
+        if (!TryReconcileExecutableCash(accountId, request.Currency, context))
+        {
+            return ComponentOperationResult.Retry("Unable to reconcile executable cash ledger.");
+        }
 
         var reserved = false;
         var lockResult = cashService.TryAcquireLock(
@@ -280,19 +308,15 @@ public sealed class TradeService(
 
         try
         {
-            var order = orderService.TrySubmit(
-                orderKey,
+            var order = RecordOrderFill(
+                context,
+                request,
                 accountId,
-                context.TriggerId,
                 allocationId,
-                request.AssetSymbol,
+                orderKey,
+                existingOrder,
                 OrderSide.Buy,
-                request.Quantity,
-                limitPrice: null,
-                fillPrice: execution.AverageFillPrice,
-                externalOrderId: execution.ExternalOrderId,
-                provider: execution.Provider,
-                filledUtc: execution.FilledUtc);
+                execution);
 
             if (!order.Succeeded)
             {
@@ -389,14 +413,17 @@ public sealed class TradeService(
             ?? throw new InvalidOperationException("Sell requires ExternalId (Account).");
 
         var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
-        var orderKey = $"{context.IdempotencyKey}:order";
         var positionKey = $"{context.IdempotencyKey}:position";
         var creditKey = $"{context.IdempotencyKey}:credit";
         var ledgerKey = $"{context.IdempotencyKey}:ledger";
         var referencePrice = ResolveReferencePrice(request);
 
-        // Idempotent retry: local order already recorded after a prior successful sell.
-        if (orderService.FindByIdempotencyKey(orderKey) is not null)
+        if (!TryResolveOrderKey(context, request, OrderSide.Sell, out var orderKey, out var existingOrder, out var resolveError))
+        {
+            return ComponentOperationResult.Failure(resolveError ?? "Unable to resolve order.");
+        }
+
+        if (existingOrder?.Status == OrderStatus.Filled)
         {
             return ComponentOperationResult.Success(resultJson: """{"status":"sold","idempotent":true}""");
         }
@@ -472,19 +499,15 @@ public sealed class TradeService(
                 return ComponentOperationResult.Failure(sell.Error ?? "Sell failed.");
             }
 
-            var order = orderService.TrySubmit(
-                orderKey,
+            var order = RecordOrderFill(
+                context,
+                request,
                 accountId,
-                context.TriggerId,
                 allocationId,
-                request.AssetSymbol,
+                orderKey,
+                existingOrder,
                 OrderSide.Sell,
-                request.Quantity,
-                limitPrice: null,
-                fillPrice: execution.AverageFillPrice,
-                externalOrderId: execution.ExternalOrderId,
-                provider: execution.Provider,
-                filledUtc: execution.FilledUtc);
+                execution);
 
             if (!order.Succeeded)
             {
@@ -667,7 +690,109 @@ public sealed class TradeService(
         }
     }
 
-    private void SyncCashDeposit(Guid tradingAccountId, string currency, decimal amount, TriggerContext context)
+    private bool TryResolveOrderKey(
+        TriggerContext context,
+        TradeAssetRequest request,
+        OrderSide side,
+        out string orderKey,
+        out Order? existingOrder,
+        out string? error)
+    {
+        _ = side;
+        existingOrder = null;
+        error = null;
+
+        if (request.OrderId is { } orderId && orderId != Guid.Empty)
+        {
+            existingOrder = orderService.GetById(orderId);
+            if (existingOrder is null)
+            {
+                orderKey = string.Empty;
+                error = "Investment order was not found.";
+                return false;
+            }
+
+            orderKey = existingOrder.IdempotencyKey;
+            return true;
+        }
+
+        orderKey = $"{context.IdempotencyKey}:order";
+        existingOrder = orderService.FindByIdempotencyKey(orderKey);
+        return true;
+    }
+
+    private OrderSubmitResult RecordOrderFill(
+        TriggerContext context,
+        TradeAssetRequest request,
+        Guid accountId,
+        Guid allocationId,
+        string orderKey,
+        Order? existingOrder,
+        OrderSide side,
+        BrokerOrderExecution execution)
+    {
+        if (existingOrder is not null || (request.OrderId is { } id && id != Guid.Empty))
+        {
+            var orderId = existingOrder?.Id ?? request.OrderId!.Value;
+            return orderService.TryFill(
+                orderId,
+                execution.AverageFillPrice,
+                execution.ExternalOrderId,
+                execution.Provider,
+                execution.FilledUtc);
+        }
+
+        return orderService.TrySubmit(
+            orderKey,
+            accountId,
+            context.TriggerId,
+            allocationId,
+            request.AssetSymbol,
+            side,
+            request.Quantity,
+            limitPrice: null,
+            fillPrice: execution.AverageFillPrice,
+            externalOrderId: execution.ExternalOrderId,
+            provider: execution.Provider,
+            filledUtc: execution.FilledUtc);
+    }
+
+    private bool TryReconcileExecutableCash(Guid accountId, string currency, TriggerContext context)
+    {
+        decimal settled;
+        if (customerDirectory.FindTradingAccount(accountId) is { } tradingAccount)
+        {
+            settled = tradingAccount.Settled;
+        }
+        else if (customerDirectory.FindInvestmentAccount(accountId) is { } investmentAccount)
+        {
+            settled = investmentAccount.Settled;
+        }
+        else
+        {
+            return true;
+        }
+
+        var gap = settled - cashService.GetSettled(accountId, currency);
+        if (gap <= 0)
+        {
+            return true;
+        }
+
+        return TrySyncCashDeposit(
+            accountId,
+            currency,
+            gap,
+            context,
+            idempotencySuffix: $"cash-reconcile:{settled:0.####}");
+    }
+
+    private bool TrySyncCashDeposit(
+        Guid tradingAccountId,
+        string currency,
+        decimal amount,
+        TriggerContext context,
+        string? idempotencySuffix = null)
     {
         var lockResult = cashService.TryAcquireLock(
             tradingAccountId,
@@ -678,17 +803,18 @@ public sealed class TradeService(
 
         if (!lockResult.IsHeld)
         {
-            return;
+            return false;
         }
 
         try
         {
-            cashService.TryDeposit(
-                $"{context.IdempotencyKey}:cash-sync-deposit",
+            var deposit = cashService.TryDeposit(
+                $"{context.IdempotencyKey}:{idempotencySuffix ?? "cash-sync-deposit"}",
                 tradingAccountId,
                 currency,
                 amount,
                 context.TriggerId);
+            return deposit.Succeeded;
         }
         finally
         {
@@ -696,7 +822,7 @@ public sealed class TradeService(
         }
     }
 
-    private void SyncCashWithdraw(Guid tradingAccountId, string currency, decimal amount, TriggerContext context)
+    private bool TrySyncCashWithdraw(Guid tradingAccountId, string currency, decimal amount, TriggerContext context)
     {
         var allocationId = context.AllocationRequestId ?? context.RootWorkflowId;
         var lockResult = cashService.TryAcquireLock(
@@ -708,7 +834,7 @@ public sealed class TradeService(
 
         if (!lockResult.IsHeld)
         {
-            return;
+            return false;
         }
 
         var reserveKey = $"{context.IdempotencyKey}:cash-sync-withdraw";
@@ -724,10 +850,11 @@ public sealed class TradeService(
 
             if (!reserve.Succeeded)
             {
-                return;
+                return false;
             }
 
-            cashService.TryConsumeReservation(reserveKey, context.TriggerId);
+            var consume = cashService.TryConsumeReservation(reserveKey, context.TriggerId);
+            return consume.Succeeded;
         }
         finally
         {
@@ -737,30 +864,46 @@ public sealed class TradeService(
 
     private void SyncTradingAccountDebit(Guid accountId, decimal amount, TriggerContext context)
     {
-        if (customerDirectory.FindTradingAccount(accountId) is null)
+        if (customerDirectory.FindTradingAccount(accountId) is not null)
         {
+            customerDirectory.TryDebitTradingAccount(
+                accountId,
+                amount,
+                context.TriggerId,
+                $"{context.IdempotencyKey}:trading-debit");
             return;
         }
 
-        customerDirectory.TryDebitTradingAccount(
-            accountId,
-            amount,
-            context.TriggerId,
-            $"{context.IdempotencyKey}:trading-debit");
+        if (customerDirectory.FindInvestmentAccount(accountId) is not null)
+        {
+            customerDirectory.TryDebitInvestmentAccount(
+                accountId,
+                amount,
+                context.TriggerId,
+                $"{context.IdempotencyKey}:investment-debit");
+        }
     }
 
     private void SyncTradingAccountCredit(Guid accountId, decimal amount, TriggerContext context)
     {
-        if (customerDirectory.FindTradingAccount(accountId) is null)
+        if (customerDirectory.FindTradingAccount(accountId) is not null)
         {
+            customerDirectory.TryCreditTradingAccount(
+                accountId,
+                amount,
+                context.TriggerId,
+                $"{context.IdempotencyKey}:trading-credit-sell");
             return;
         }
 
-        customerDirectory.TryCreditTradingAccount(
-            accountId,
-            amount,
-            context.TriggerId,
-            $"{context.IdempotencyKey}:trading-credit-sell");
+        if (customerDirectory.FindInvestmentAccount(accountId) is not null)
+        {
+            customerDirectory.TryCreditInvestmentAccount(
+                accountId,
+                amount,
+                context.TriggerId,
+                $"{context.IdempotencyKey}:investment-credit-sell");
+        }
     }
 
     private static void Validate(TradeAssetRequest request)

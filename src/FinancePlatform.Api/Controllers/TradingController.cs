@@ -1,7 +1,6 @@
 using FinancePlatform.Api.Contracts;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Services.Customer;
-using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Portfolio;
 using FinancePlatform.Services.Workflows;
@@ -15,7 +14,6 @@ namespace FinancePlatform.Api.Controllers;
 public sealed class TradingController(
     ICustomerService customerService,
     ICustomerDirectory customerDirectory,
-    IInvestmentInstructionStore instructionStore,
     IWorkflowEnqueueService workflowsService,
     IOrderService orderService,
     IPortfolioService portfolioService) : ControllerBase
@@ -33,14 +31,12 @@ public sealed class TradingController(
         }
 
         var tradingAccount = customer.TradingAccount;
-        var pendingInstructions = instructionStore.GetPendingCashAmount(tradingAccount.Id);
-        var available = customerDirectory.GetTradingAvailable(tradingAccount.Id, pendingInstructions);
-
         var portfolio = portfolioService.GetPortfolio(
             tradingAccount.Id,
             tradingAccount.Currency);
 
-        var cash = CustomerMapper.ToTradingAccountBalance(tradingAccount, available);
+        // Available must reflect CashBalance (what buys can reserve), not TradingAccount+Investment totals.
+        var cash = CustomerMapper.ToTradingAccountBalance(tradingAccount, portfolio.CashAvailable);
         var positions = portfolio.Positions
             .Select(p => new PositionResponse(
                 p.AssetSymbol,
@@ -54,7 +50,7 @@ public sealed class TradingController(
             cash,
             positions,
             portfolio.PositionsMarketValue,
-            cash.Available + portfolio.PositionsMarketValue));
+            portfolio.CashAvailable + portfolio.PositionsMarketValue));
     }
 
     [HttpGet("portfolio")]
@@ -70,9 +66,6 @@ public sealed class TradingController(
         }
 
         var tradingAccount = customer.TradingAccount;
-        var pendingInstructions = instructionStore.GetPendingCashAmount(tradingAccount.Id);
-        var cashAvailable = customerDirectory.GetTradingAvailable(tradingAccount.Id, pendingInstructions);
-
         var portfolio = portfolioService.GetPortfolio(
             tradingAccount.Id,
             tradingAccount.Currency);
@@ -80,9 +73,9 @@ public sealed class TradingController(
         return Ok(new PortfolioResponse(
             portfolio.TradingAccountId,
             portfolio.Currency,
-            cashAvailable,
+            portfolio.CashAvailable,
             portfolio.PositionsMarketValue,
-            cashAvailable + portfolio.PositionsMarketValue,
+            portfolio.CashAvailable + portfolio.PositionsMarketValue,
             portfolio.Positions
                 .Select(p => new PositionResponse(
                     p.AssetSymbol,
@@ -160,7 +153,8 @@ public sealed class TradingController(
     [HttpPost("buys")]
     [EndpointName("BuyAsset")]
     [EndpointSummary("Buy asset")]
-    [EndpointDescription("Enqueues a buy against the trading account. Requires parked trading cash.")]
+    [EndpointDescription(
+        "Creates an investment instruction from parked trading cash and enqueues Investment → Asset buy (8001 → 8002 → 9001).")]
     public async Task<ActionResult<WorkflowAcceptedResponse>> Buy(
         int customerId,
         [FromBody] TradingOrderRequest body,
@@ -181,15 +175,23 @@ public sealed class TradingController(
             return BadRequest("Trading account does not belong to this customer.");
         }
 
-        await workflowsService.EnqueueBuyAsync(new BuyWorkflowCommand
+        try
         {
-            AccountId = tradingAccountId,
-            AssetSymbol = body.AssetSymbol,
-            Quantity = body.Quantity,
-            Currency = body.Currency ?? customer.TradingAccount.Currency,
-            IdempotencyKey = IdempotencyKeys.ForTrade("buy"),
-            ExternalType = ExternalEntityType.TradingAccount
-        }, ct);
+            await workflowsService.EnqueueBuyAsync(new BuyWorkflowCommand
+            {
+                CustomerId = customerId,
+                AccountId = tradingAccountId,
+                AssetSymbol = body.AssetSymbol,
+                Quantity = body.Quantity,
+                Currency = body.Currency ?? customer.TradingAccount.Currency,
+                IdempotencyKey = IdempotencyKeys.ForTrade("buy"),
+                ExternalType = ExternalEntityType.TradingAccount
+            }, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
         return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }
@@ -197,7 +199,8 @@ public sealed class TradingController(
     [HttpPost("sells")]
     [EndpointName("SellAsset")]
     [EndpointSummary("Sell asset")]
-    [EndpointDescription("Enqueues a sell against the trading account. Requires an existing position.")]
+    [EndpointDescription(
+        "Creates an investment instruction and enqueues Investment → Asset sell (8002 → 9002). Requires an existing investment position.")]
     public async Task<ActionResult<WorkflowAcceptedResponse>> Sell(
         int customerId,
         [FromBody] TradingOrderRequest body,
@@ -218,15 +221,23 @@ public sealed class TradingController(
             return BadRequest("Trading account does not belong to this customer.");
         }
 
-        await workflowsService.EnqueueSellAsync(new SellWorkflowCommand
+        try
         {
-            AccountId = tradingAccountId,
-            AssetSymbol = body.AssetSymbol,
-            Quantity = body.Quantity,
-            Currency = body.Currency ?? customer.TradingAccount.Currency,
-            IdempotencyKey = IdempotencyKeys.ForTrade("sell"),
-            ExternalType = ExternalEntityType.TradingAccount
-        }, ct);
+            await workflowsService.EnqueueSellAsync(new SellWorkflowCommand
+            {
+                CustomerId = customerId,
+                AccountId = tradingAccountId,
+                AssetSymbol = body.AssetSymbol,
+                Quantity = body.Quantity,
+                Currency = body.Currency ?? customer.TradingAccount.Currency,
+                IdempotencyKey = IdempotencyKeys.ForTrade("sell"),
+                ExternalType = ExternalEntityType.TradingAccount
+            }, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
         return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }

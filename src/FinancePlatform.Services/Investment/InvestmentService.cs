@@ -1,24 +1,19 @@
 using System.Text.Json;
-using FinancePlatform.Models.Allocation;
+using FinancePlatform.Models.Asset;
 using FinancePlatform.Models.Components;
-using FinancePlatform.Models.Customer;
 using FinancePlatform.Models.Dtos;
-using FinancePlatform.Models.Entities;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Investment;
-using FinancePlatform.Models.Trade;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Cash;
 using FinancePlatform.Services.Customer;
 using FinancePlatform.Services.Investment;
-using FinancePlatform.Services.Ledger;
 using FinancePlatform.Services.Orders;
-using FinancePlatform.Services.Positions;
 
 namespace FinancePlatform.Services.Investment;
 
 /// <summary>
-/// Main investment component service — receives distributed cash and creates asset orders.
+/// Investment component: credits investment cash, creates the local Order row, then raises Asset triggers.
 /// </summary>
 public sealed class InvestmentService(
     ICustomerDirectory customerDirectory,
@@ -55,7 +50,17 @@ public sealed class InvestmentService(
             return ComponentOperationResult.Failure("Unable to credit investment account.");
         }
 
-        SyncCashDeposit(investmentAccount.Id, request.Currency, request.EffectiveCashAmount, context);
+        if (!TrySyncCashDeposit(investmentAccount.Id, request.Currency, request.EffectiveCashAmount, context))
+        {
+            customerDirectory.TryDebitInvestmentAccount(
+                investmentAccount.Id,
+                request.EffectiveCashAmount,
+                context.TriggerId,
+                $"{context.IdempotencyKey}:investment-credit-rollback");
+            return ComponentOperationResult.Failure(
+                "Unable to sync executable cash ledger for investment account.");
+        }
+
         instructionStore.TryUpdateStatus(request.InstructionId, InvestmentInstructionStatus.Processing);
 
         return ComponentOperationResult.Success(
@@ -86,7 +91,12 @@ public sealed class InvestmentService(
             return ComponentOperationResult.Failure("Investment instruction was not found.");
         }
 
-        var orderKey = $"{instruction.IdempotencyKey}:asset-order";
+        if (instruction.Status is InvestmentInstructionStatus.Pending)
+        {
+            instructionStore.TryUpdateStatus(instruction.Id, InvestmentInstructionStatus.Processing);
+        }
+
+        var orderKey = $"{instruction.IdempotencyKey}:order";
         var order = orderService.TryCreate(
             orderKey,
             instruction.InvestmentAccountId,
@@ -97,15 +107,15 @@ public sealed class InvestmentService(
             instruction.Quantity,
             limitPrice: null);
 
-        if (!order.Succeeded)
+        if (!order.Succeeded || order.Order is null)
         {
             instructionStore.TryUpdateStatus(instruction.Id, InvestmentInstructionStatus.Failed);
             return ComponentOperationResult.Failure(order.Error ?? "Unable to create asset order.");
         }
 
-        instructionStore.TrySetOrderId(instruction.Id, order.Order!.Id);
+        instructionStore.TrySetOrderId(instruction.Id, order.Order.Id);
 
-        var assetPayload = JsonSerializer.Serialize(new Models.Asset.AssetOrderRequest
+        var assetPayload = JsonSerializer.Serialize(new AssetOrderRequest
         {
             InstructionId = instruction.Id,
             OrderId = order.Order.Id,
@@ -117,7 +127,7 @@ public sealed class InvestmentService(
         });
 
         return ComponentOperationResult.Success(
-            resultJson: """{"status":"investment-invested"}""",
+            resultJson: $$"""{"status":"investment-invested","orderId":"{{order.Order.Id}}"}""",
             nextTriggers:
             [
                 new NextTriggerSpec
@@ -133,7 +143,7 @@ public sealed class InvestmentService(
             ]);
     }
 
-    private void SyncCashDeposit(Guid investmentAccountId, string currency, decimal amount, TriggerContext context)
+    private bool TrySyncCashDeposit(Guid investmentAccountId, string currency, decimal amount, TriggerContext context)
     {
         var lockResult = cashService.TryAcquireLock(
             investmentAccountId,
@@ -144,17 +154,18 @@ public sealed class InvestmentService(
 
         if (!lockResult.IsHeld)
         {
-            return;
+            return false;
         }
 
         try
         {
-            cashService.TryDeposit(
+            var deposit = cashService.TryDeposit(
                 $"{context.IdempotencyKey}:investment-cash-sync",
                 investmentAccountId,
                 currency,
                 amount,
                 context.TriggerId);
+            return deposit.Succeeded;
         }
         finally
         {

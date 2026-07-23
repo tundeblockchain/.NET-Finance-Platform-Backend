@@ -28,7 +28,14 @@ public interface IOrderRepository
         DateTimeOffset? filledUtc = null,
         CancellationToken cancellationToken = default);
 
-    Task<bool> MarkFilledAsync(Guid orderId, string changedBy, CancellationToken cancellationToken = default);
+    Task<Order?> MarkFilledAsync(
+        Guid orderId,
+        string changedBy,
+        decimal? fillPrice = null,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null,
+        CancellationToken cancellationToken = default);
 
     Task<Order> UpsertAsync(Order entity, CancellationToken cancellationToken = default);
 }

@@ -32,42 +32,56 @@ public sealed class WorkflowsController(IWorkflowEnqueueService workflowsService
 
     [HttpPost("buys")]
     [EndpointName("EnqueueBuy")]
-    [EndpointSummary("Enqueue buy asset trigger")]
-    [EndpointDescription("Creates a BuyAsset trigger. Account must already have available cash.")]
+    [EndpointSummary("Enqueue buy via investment instruction")]
+    [EndpointDescription("Creates an investment instruction and InvestmentReceiveMoney (8001) root trigger. Prefer POST /api/trading/customers/{id}/buys.")]
     public async Task<ActionResult<WorkflowAcceptedResponse>> EnqueueBuy(
         [FromBody] BuyRequest body,
         CancellationToken ct)
     {
-        await workflowsService.EnqueueBuyAsync(new BuyWorkflowCommand
+        try
         {
-            AccountId = body.AccountId,
-            AssetSymbol = body.AssetSymbol,
-            Quantity = body.Quantity,
-            Currency = body.Currency ?? "GBP",
-            IdempotencyKey = IdempotencyKeys.ForTrade("buy"),
-            AllocationRequestId = body.AllocationRequestId
-        }, ct);
+            await workflowsService.EnqueueBuyAsync(new BuyWorkflowCommand
+            {
+                AccountId = body.AccountId,
+                AssetSymbol = body.AssetSymbol,
+                Quantity = body.Quantity,
+                Currency = body.Currency ?? "GBP",
+                IdempotencyKey = IdempotencyKeys.ForTrade("buy"),
+                AllocationRequestId = body.AllocationRequestId
+            }, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
         return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }
 
     [HttpPost("sells")]
     [EndpointName("EnqueueSell")]
-    [EndpointSummary("Enqueue sell asset trigger")]
-    [EndpointDescription("Creates a SellAsset trigger. Account must already hold the position.")]
+    [EndpointSummary("Enqueue sell via investment instruction")]
+    [EndpointDescription("Creates an investment instruction and InvestmentInvestMoney (8002) root trigger. Prefer POST /api/trading/customers/{id}/sells.")]
     public async Task<ActionResult<WorkflowAcceptedResponse>> EnqueueSell(
         [FromBody] SellRequest body,
         CancellationToken ct)
     {
-        await workflowsService.EnqueueSellAsync(new SellWorkflowCommand
+        try
         {
-            AccountId = body.AccountId,
-            AssetSymbol = body.AssetSymbol,
-            Quantity = body.Quantity,
-            Currency = body.Currency ?? "GBP",
-            IdempotencyKey = IdempotencyKeys.ForTrade("sell"),
-            AllocationRequestId = body.AllocationRequestId
-        }, ct);
+            await workflowsService.EnqueueSellAsync(new SellWorkflowCommand
+            {
+                AccountId = body.AccountId,
+                AssetSymbol = body.AssetSymbol,
+                Quantity = body.Quantity,
+                Currency = body.Currency ?? "GBP",
+                IdempotencyKey = IdempotencyKeys.ForTrade("sell"),
+                AllocationRequestId = body.AllocationRequestId
+            }, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
 
         return Accepted(WorkflowAcceptedResponse.RequestWillBeProcessed);
     }

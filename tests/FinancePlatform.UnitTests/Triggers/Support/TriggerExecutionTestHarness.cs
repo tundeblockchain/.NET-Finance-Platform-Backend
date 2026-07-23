@@ -25,7 +25,7 @@ internal sealed record TriggerExecutionTestHarness(
     IInvestmentInstructionStore Instructions,
     ITradeService Trading,
     IPositionService Positions,
-    IOrderService Orders,
+    InMemoryOrderService Orders,
     TriggerExecutionService Execution)
 {
     public static TriggerExecutionTestHarness Create(bool registerDefaults = true)
@@ -42,7 +42,7 @@ internal sealed record TriggerExecutionTestHarness(
         var trade = TradeServiceTestFactory.Create(cash, ledger, orders, positions, directory);
         var customer = new CustomerService(directory);
         var investment = new InvestmentService(directory, instructions, orders, cash);
-        var asset = new AssetService(trade, allocation);
+        var asset = new AssetService(trade, allocation, instructions);
         var cashComponent = new CashComponentService(cash, ledger);
 
         if (registerDefaults)

@@ -4,7 +4,6 @@ using FinancePlatform.Models.Entities;
 using FinancePlatform.Models.Enums;
 using FinancePlatform.Models.Triggers;
 using FinancePlatform.Services.Customer;
-using FinancePlatform.Services.Investment;
 using FinancePlatform.Services.Orders;
 using FinancePlatform.Services.Portfolio;
 using FinancePlatform.Services.Workflows;
@@ -37,9 +36,6 @@ public class TradingControllerTests
         customers.GetCustomer(1).Returns(provisioned);
 
         var directory = Substitute.For<ICustomerDirectory>();
-        directory.GetTradingAvailable(provisioned.TradingAccount.Id, Arg.Any<decimal>())
-            .Returns(400m);
-
         var portfolio = Substitute.For<IPortfolioService>();
         portfolio.GetPortfolio(provisioned.TradingAccount.Id, provisioned.TradingAccount.Currency)
             .Returns(new PortfolioSnapshot(
@@ -60,8 +56,9 @@ public class TradingControllerTests
         var ok = result.Result.Should().BeOfType<OkObjectResult>().Subject;
         var body = ok.Value.Should().BeOfType<TradingFundsResponse>().Subject;
         body.Cash.Settled.Should().Be(400m);
+        body.Cash.Available.Should().Be(400m);
         body.PositionsMarketValue.Should().Be(225m);
-        body.TotalEquity.Should().Be(body.Cash.Available + 225m);
+        body.TotalEquity.Should().Be(625m);
         body.Positions.Should().ContainSingle(p => p.AssetSymbol == "VWRL" && p.Quantity == 3m && p.LastPrice == 75m);
     }
 
@@ -133,7 +130,7 @@ public class TradingControllerTests
         var customers = Substitute.For<ICustomerService>();
         customers.GetCustomer(1).Returns(provisioned);
 
-        var trigger = ApiTestFixtures.CreateTrigger(TriggerCodes.BuyAsset, QueueNames.Trading, "buy-1");
+        var trigger = ApiTestFixtures.CreateTrigger(TriggerCodes.InvestmentReceiveMoney, QueueNames.Investment, "buy-1");
         var workflows = Substitute.For<IWorkflowEnqueueService>();
         workflows.EnqueueBuyAsync(Arg.Any<BuyWorkflowCommand>(), Arg.Any<CancellationToken>()).Returns(trigger);
 
@@ -150,7 +147,8 @@ public class TradingControllerTests
 
         await workflows.Received(1).EnqueueBuyAsync(
             Arg.Is<BuyWorkflowCommand>(c =>
-                c.AccountId == provisioned.TradingAccount.Id
+                c.CustomerId == 1
+                && c.AccountId == provisioned.TradingAccount.Id
                 && c.AssetSymbol == "VWRL"
                 && c.Quantity == 2m
                 && c.ExternalType == ExternalEntityType.TradingAccount
@@ -165,7 +163,7 @@ public class TradingControllerTests
         var customers = Substitute.For<ICustomerService>();
         customers.GetCustomer(1).Returns(provisioned);
 
-        var trigger = ApiTestFixtures.CreateTrigger(TriggerCodes.SellAsset, QueueNames.Trading, "sell-1");
+        var trigger = ApiTestFixtures.CreateTrigger(TriggerCodes.InvestmentInvestMoney, QueueNames.Investment, "sell-1");
         var workflows = Substitute.For<IWorkflowEnqueueService>();
         workflows.EnqueueSellAsync(Arg.Any<SellWorkflowCommand>(), Arg.Any<CancellationToken>()).Returns(trigger);
 
@@ -179,7 +177,8 @@ public class TradingControllerTests
         result.Result.Should().BeOfType<AcceptedResult>();
         await workflows.Received(1).EnqueueSellAsync(
             Arg.Is<SellWorkflowCommand>(c =>
-                c.AccountId == provisioned.TradingAccount.Id
+                c.CustomerId == 1
+                && c.AccountId == provisioned.TradingAccount.Id
                 && c.ExternalType == ExternalEntityType.TradingAccount
                 && c.IdempotencyKey.StartsWith("sell-")),
             Arg.Any<CancellationToken>());
@@ -224,12 +223,10 @@ public class TradingControllerTests
         IWorkflowEnqueueService? workflows = null,
         IOrderService? orderService = null,
         IPortfolioService? portfolioService = null,
-        ICustomerDirectory? customerDirectory = null,
-        IInvestmentInstructionStore? instructionStore = null) =>
+        ICustomerDirectory? customerDirectory = null) =>
         new(
             customers,
             customerDirectory ?? Substitute.For<ICustomerDirectory>(),
-            instructionStore ?? Substitute.For<IInvestmentInstructionStore>(),
             workflows ?? Substitute.For<IWorkflowEnqueueService>(),
             orderService ?? Substitute.For<IOrderService>(),
             portfolioService ?? CreateEmptyPortfolioService());

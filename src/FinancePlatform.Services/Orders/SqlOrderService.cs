@@ -61,8 +61,38 @@ public sealed class SqlOrderService(IOrderRepository orderRepository) : IOrderSe
     public Order? GetById(Guid orderId) =>
         orderRepository.GetAsync(orderId).GetAwaiter().GetResult();
 
-    public bool TryMarkFilled(Guid orderId) =>
-        orderRepository.MarkFilledAsync(orderId, ChangeActors.Broker).GetAwaiter().GetResult();
+    public OrderSubmitResult TryFill(
+        Guid orderId,
+        decimal fillPrice,
+        string? externalOrderId = null,
+        string? provider = null,
+        DateTimeOffset? filledUtc = null)
+    {
+        try
+        {
+            var order = orderRepository
+                .MarkFilledAsync(
+                    orderId,
+                    ChangeActors.Broker,
+                    fillPrice,
+                    externalOrderId,
+                    provider,
+                    filledUtc)
+                .GetAwaiter()
+                .GetResult();
+
+            if (order is null)
+            {
+                return OrderSubmitResult.Failure("Order was not found or could not be filled.");
+            }
+
+            return OrderSubmitResult.Success(order, alreadyApplied: order.Status == OrderStatus.Filled);
+        }
+        catch (Exception ex)
+        {
+            return OrderSubmitResult.Failure(RootMessage(ex));
+        }
+    }
 
     public IReadOnlyList<Order> GetByAccount(Guid accountId) =>
         orderRepository.GetByAccountAsync(accountId).GetAwaiter().GetResult();
